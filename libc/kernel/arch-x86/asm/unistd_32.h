@@ -337,5 +337,6 @@
 #define __NR_timerfd 322
 #define __NR_eventfd 323
 #define __NR_fallocate 324
-
+/* WARNING: DO NOT EDIT, AUTO-GENERATED CODE - SEE TOP FOR INSTRUCTIONS */
+#define __NR_perf_event_open 364
 #endif
