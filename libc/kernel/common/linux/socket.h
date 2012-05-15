@@ -15,6 +15,8 @@
 #define _K_SS_MAXSIZE 128  
 #define _K_SS_ALIGNSIZE (__alignof__ (struct sockaddr *))
 
+typedef unsigned short __kernel_sa_family_t;
+
 struct __kernel_sockaddr_storage {
  unsigned short ss_family;
 
