@@ -51,7 +51,7 @@
 #include "linker_phdr.h"
 
 #define ALLOW_SYMBOLS_FROM_MAIN 1
-#define SO_MAX 128
+#define SO_MAX 192
 
 /* Assume average path length of 64 and max 8 paths */
 #define LDPATH_BUFSIZE 512
