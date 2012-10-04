@@ -69,6 +69,21 @@ C6  = -1.13596475577881948265e-11; /* 0xBDA8FAE9, 0xBE8838D4 */
 double
 __kernel_cos(double x, double y)
 {
+#if defined(KRAIT_NEON_OPTIMIZATION)
+	double hz,z,zz,zzz,r,w,k,l,m,n;
+
+	z  = x*x;
+	zz = z*z;
+	zzz = z*z*z;
+	hz = (float)0.5*z;
+	k = C5+C6*z;
+	l = C2+C3*z;
+	w  = one-hz;
+	m = C1+C2*z;
+	k = l + zz*k;
+	r = z*m + zzz*k;
+	return w + (((one-w)-hz) + (z*r-x*y));
+#else
 	double hz,z,r,w;
 
 	z  = x*x;
@@ -76,4 +91,5 @@ __kernel_cos(double x, double y)
 	hz = (float)0.5*z;
 	w  = one-hz;
 	return w + (((one-w)-hz) + (z*r-x*y));
+#endif
 }
