@@ -60,20 +60,6 @@ S6  =  1.58969099521155010221e-10; /* 0x3DE5D93A, 0x5ACFD57C */
 double
 __kernel_sin(double x, double y, int iy)
 {
-#if defined(KRAIT_NEON_OPTIMIZATION)
-	double z,zz,zzx,r,v,k,l,m;
-
-	z	=  x*x;
-	v	=  z*x;
-	zz  =  z*z;
-	zzx =  z*z*x;
-	k = S5+z*S6;
-	l = S3+z*S4;
-	m = l+zz*k;
-	r = S2 + z*m;
-	if(iy==0) return x+v*S1+zzx*r;
-	else	  return x-(((z*half*y-zzx*r)-y)-v*S1);
-#else
 	double z,r,v;
 
 	z	=  x*x;
@@ -81,5 +67,4 @@ __kernel_sin(double x, double y, int iy)
 	r	=  S2+z*(S3+z*(S4+z*(S5+z*S6)));
 	if(iy==0) return x+v*(S1+z*r);
 	else      return x-((z*(half*y-v*r)-y)-v*S1);
-#endif
 }
