@@ -20,6 +20,7 @@
 #define _LINUX_IN_H
 #include <linux/types.h>
 #include <linux/socket.h>
+#include <sys/socket.h>
 /* WARNING: DO NOT EDIT, AUTO-GENERATED CODE - SEE TOP FOR INSTRUCTIONS */
 enum {
  IPPROTO_IP = 0,
