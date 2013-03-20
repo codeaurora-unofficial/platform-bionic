@@ -49,7 +49,7 @@
 #define NETLINK_IDLETIMER 21
 #define MAX_LINKS 32 
 struct sockaddr_nl {
- sa_family_t nl_family;
+ __kernel_sa_family_t nl_family;
 /* WARNING: DO NOT EDIT, AUTO-GENERATED CODE - SEE TOP FOR INSTRUCTIONS */
  unsigned short nl_pad;
  __u32 nl_pid;
