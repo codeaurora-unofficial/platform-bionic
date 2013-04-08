@@ -167,11 +167,21 @@ ifeq ($(TARGET_ARCH),arm)
 	  arm/e_sqrt.S
     libm_common_cflags += -DKRAIT_NEON_OPTIMIZATION -fno-if-conversion
   else
-    libm_common_src_files += \
-	  src/s_cos.c \
-	  src/s_sin.c \
-	  src/e_sqrtf.c \
-	  src/e_sqrt.c
+      ifeq ($(TARGET_USE_QCOM_BIONIC_OPTIMIZATION),true)
+        libm_common_src_files += \
+	      arm/e_pow.S \
+	      arm/s_cos.S \
+	      arm/s_sin.S \
+	      arm/e_sqrtf.S \
+	      arm/e_sqrt.S
+        libm_common_cflags += -DKRAIT_NEON_OPTIMIZATION -fno-if-conversion
+      else
+        libm_common_src_files += \
+	      src/s_cos.c \
+	      src/s_sin.c \
+	      src/e_sqrtf.c \
+	      src/e_sqrt.c
+      endif
   endif
 
   ifeq ($(TARGET_USE_SPARROW_BIONIC_OPTIMIZATION),true)
