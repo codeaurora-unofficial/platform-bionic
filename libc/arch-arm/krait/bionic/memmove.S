@@ -90,10 +90,18 @@ _memmove_words:
 
 	push	{r0}
 
+.Lneon_back_to_front_copy:
 	add	r0, r0, r2
 	add	r1, r1, r2
 	cmp	r2, #4
-	blt	.Lneon_b2f_copy_1
+	bgt	.Lneon_b2f_gt4
+	cmp	r2, #0
+.Lneon_b2f_smallcopy_loop:
+	beq	.Lneon_memmove_done
+	ldrb	r12, [r1, #-1]!
+	subs	r2, r2, #1
+	strb	r12, [r0, #-1]!
+	b	.Lneon_b2f_smallcopy_loop
 .Lneon_b2f_gt4:
 	sub	r3, r0, r1
 	cmp	r2, r3
@@ -182,13 +190,16 @@ _memmove_words:
 	str	r3, [r0, #-4]!
 	bne	.Lneon_b2f_copy_4_loop
 	ands	r2, r2, #0x3
-	beq	.Lneon_memmove_done
 .Lneon_b2f_copy_1:
-	movs	r2, r2, lsl #31
-	ldrcsh	r3, [r1, #-2]
-	ldrmib	r12, [r1, #-1]
-	strcsh	r3, [r0, #-2]
-	strmib	r12, [r0, #-1]
+	cmp	r2, #0
+	beq	.Lneon_memmove_done
+	.balignl 64, NOP_OPCODE, 4*2
+.Lneon_b2f_copy_1_loop:
+	ldrb	r12, [r1, #-1]!
+	subs	r2, r2, #1
+	strb	r12, [r0, #-1]!
+	bne	.Lneon_b2f_copy_1_loop
+
 .Lneon_memmove_done:
 	pop	{r0}
 	bx	lr
