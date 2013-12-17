@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 The Android Open Source Project
+ * Copyright (C) 2013 The Android Open Source Project
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -25,19 +25,17 @@
  * OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-#include <unistd.h>
-#include <errno.h>
-#include <sys/mman.h>
 
-extern void*  __mmap2(void*, size_t, int, int, int, size_t);
+#ifndef _SYS_SWAP_H_
+#define _SYS_SWAP_H_
 
-#define  MMAP2_SHIFT  12
-void* mmap(void *addr, size_t size, int prot, int flags, int fd, long offset)
-{
-    if (offset & ((1UL << MMAP2_SHIFT)-1)) {
-        errno = EINVAL;
-        return MAP_FAILED;
-    }
+#include <sys/cdefs.h>
 
-    return __mmap2(addr, size, prot, flags, fd, (size_t)offset >> MMAP2_SHIFT);
-}
+__BEGIN_DECLS
+
+extern int swapon(const char *, int) __attribute__((__nonnull__(1)));
+extern int swapoff(const char *) __attribute__((__nonnull__(1)));
+
+__END_DECLS
+
+#endif /* _SYS_SWAP_H_ */
