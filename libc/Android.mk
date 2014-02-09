@@ -155,7 +155,6 @@ libc_common_src_files := \
 	bionic/memmem.c \
 	bionic/memrchr.c \
 	bionic/memswap.c \
-	bionic/mmap.c \
 	bionic/openat.c \
 	bionic/open.c \
 	bionic/pathconf.c \
@@ -249,6 +248,7 @@ libc_bionic_src_files := \
     bionic/__memcpy_chk.cpp \
     bionic/__memmove_chk.cpp \
     bionic/__memset_chk.cpp \
+    bionic/mmap.cpp \
     bionic/pthread_attr.cpp \
     bionic/pthread_detach.cpp \
     bionic/pthread_equal.cpp \
