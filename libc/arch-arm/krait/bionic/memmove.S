@@ -1,5 +1,5 @@
 /***************************************************************************
- Copyright (c) 2009-2013 The Linux Foundation. All rights reserved.
+ Copyright (c) 2009-2014 The Linux Foundation. All rights reserved.
 
  Redistribution and use in source and binary forms, with or without
  modification, are permitted provided that the following conditions are met:
@@ -84,7 +84,7 @@ _memmove_words:
 	.save	{r0, lr}
 	cmp	r2, #0
 	it	ne
-	subsne	r12, r0, r1
+	subsne	r12, r0, r1	// Warning: do not combine these "it" blocks
 	it	eq
 	bxeq	lr
 //	memmove only if r1 < r0 < r1+r2
@@ -171,28 +171,52 @@ _memmove_words:
 	vst1.32	{d0}, [r0]
 	it	ne
 	bne	.Lneon_b2f_copy_8_loop
-.Lneon_b2f_copy_1:
 	ands	r2, r2, #0x7
 	it	eq
 	beq	.Lneon_memmove_done
-	sub	r1, r1, r2
-	sub	r0, r0, r2
-.Lneon_b2f_copy_1_loop:
-	subs	r2, r2, #1
-	ldrb	r3, [r1, r2]
-	strb	r3, [r0, r2]
-	it	ne
-	bne	.Lneon_b2f_copy_1_loop
+.Lneon_b2f_copy_1:
+	movs	r12, r2, lsl #29
+	itttt	mi
+	submi	r1, r1, #4
+	submi	r0, r0, #4
+	ldrmi	r3, [r1]
+	strmi	r3, [r0]
+	movs	r2, r2, lsl #31
+	itttt	cs
+	subcs	r1, r1, #2
+	subcs	r0, r0, #2
+	ldrhcs	r3, [r1]
+	strhcs	r3, [r0]
+	itttt	mi
+	submi	r1, r1, #1
+	submi	r0, r0, #1
+	ldrbmi	r12, [r1]
+	strbmi	r12, [r0]
 .Lneon_memmove_done:
 	pop	{r0, pc}
 .Lneon_b2f_smallcopy_loop:
-	subs	r2, r2, #1
-	ldrb	r3, [r1, r2]
-	strb	r3, [r0, r2]
-	it	ne
-	bne	.Lneon_b2f_smallcopy_loop
+	// 4 bytes or less
+	add	r1, r1, r2
+	add	r0, r0, r2
+	movs	r12, r2, lsl #29
+	itttt	mi
+	submi	r1, r1, #4
+	submi	r0, r0, #4
+	ldrmi	r3, [r1]
+	strmi	r3, [r0]
+	movs	r2, r2, lsl #31
+	itttt	cs
+	subcs	r1, r1, #2
+	subcs	r0, r0, #2
+	ldrhcs	r3, [r1]
+	strhcs	r3, [r0]
+	itttt	mi
+	submi	r1, r1, #1
+	submi	r0, r0, #1
+	ldrbmi	r12, [r1]
+	strbmi	r12, [r0]
 	bx	lr
-        .cfi_endproc
+	.cfi_endproc
 END(memmove)
 
 
