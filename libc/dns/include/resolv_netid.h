@@ -42,6 +42,12 @@
 #define NETID_UNSET 0u
 
 /*
+ * Passing NETID_INVALID as the netId indicates device is in zero balance state and
+ * no url should be allowed to communicate.
+ */
+#define NETID_INVALID UINT_MAX
+
+/*
  * MARK_UNSET represents the default (i.e. unset) value for a socket mark.
  */
 #define MARK_UNSET 0u

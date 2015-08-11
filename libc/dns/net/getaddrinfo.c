@@ -419,7 +419,7 @@ android_getaddrinfo_proxy(
 	struct sockaddr_un proxy_addr;
 	FILE* proxy = NULL;
 	int success = 0;
-
+        const char *connectivityhostname = "connectivitycheck.android.com";
 	// Clear this at start, as we use its non-NULLness later (in the
 	// error path) to decide if we have to free up any memory we
 	// allocated in the process (before failing).
@@ -451,7 +451,13 @@ android_getaddrinfo_proxy(
 	}
 
 	netid = __netdClientDispatch.netIdForResolv(netid);
-
+        // The net id is blocked if ZeroBalance is reached;
+        if (NETID_INVALID == netid && strcmp(connectivityhostname,hostname)!=0) {
+            syslog(LOG_DEBUG,"getaddrinfo:Zero balance blocked hostname is %s",hostname);
+            return EAI_NODATA;
+        } else {
+            syslog(LOG_DEBUG,"getaddrinfo:Zero balance allowed hostname is %s",hostname);
+        }
 	// Send the request.
 	proxy = fdopen(sock, "r+");
 	if (fprintf(proxy, "getaddrinfo %s %s %d %d %d %d %u",

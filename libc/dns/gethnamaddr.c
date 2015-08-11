@@ -751,6 +751,7 @@ gethostbyname_internal(const char *name, int af, res_state res, unsigned netid, 
 	const char *cache_mode = getenv("ANDROID_DNS_MODE");
 	FILE* proxy = NULL;
 	struct hostent *result = NULL;
+        const char *connectivityhostname = "connectivitycheck.android.com";
 
 	if (cache_mode != NULL && strcmp(cache_mode, "local") == 0) {
 		res_setnetid(res, netid);
@@ -762,6 +763,13 @@ gethostbyname_internal(const char *name, int af, res_state res, unsigned netid, 
 	if (proxy == NULL) goto exit;
 
 	netid = __netdClientDispatch.netIdForResolv(netid);
+        // The net id is blocked if ZeroBalance is reached;
+        if (NETID_INVALID == netid && strcmp(connectivityhostname,name)!=0) {
+            syslog(LOG_DEBUG,"gethostbyname:Zero balance blocked hostname is %s",name);
+            goto exit;
+        } else {
+            syslog(LOG_DEBUG,"gethostbyname:Zero balance allowed hostname is %s",name);
+        }
 
 	/* This is writing to system/netd/server/DnsProxyListener.cpp and changes
 	 * here need to be matched there */
@@ -800,6 +808,11 @@ android_gethostbyaddrfornet_proxy(const void *addr,
 	if (addrStr == NULL) goto exit;
 
 	netid = __netdClientDispatch.netIdForResolv(netid);
+        // The net id is blocked if ZeroBalance is reached;
+        if (NETID_INVALID == netid) {
+            syslog(LOG_DEBUG,"gethostbyaddrfornet:Zero balance");
+            goto exit;
+        }
 
 	if (fprintf(proxy, "gethostbyaddr %s %d %d %u",
 			addrStr, len, af, netid) < 0) {
