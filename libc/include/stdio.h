@@ -52,8 +52,10 @@
 __BEGIN_DECLS
 
 #if defined(__clang__)
+#if __has_warning("-Wnullability-completeness")
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wnullability-completeness"
+#endif
 #endif
 
 typedef off_t fpos_t;
@@ -391,7 +393,9 @@ char *fgets(char* dest, int size, FILE* stream) {
 #endif /* defined(__BIONIC_FORTIFY) */
 
 #if defined(__clang__)
+#if __has_warning("-Wnullability-completeness")
 #pragma clang diagnostic pop
+#endif
 #endif
 
 __END_DECLS
