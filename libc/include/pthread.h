@@ -39,10 +39,8 @@
 __BEGIN_DECLS
 
 #if defined(__clang__)
-#if __has_warning("-Wnullability-completeness")
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wnullability-completeness"
-#endif
 #endif
 
 enum {
@@ -237,9 +235,7 @@ void __pthread_cleanup_pop(__pthread_cleanup_t*, int);
     } while (0);                                       \
 
 #if defined(__clang__)
-#if __has_warning("-Wnullability-completeness")
 #pragma clang diagnostic pop
-#endif
 #endif
 
 __END_DECLS

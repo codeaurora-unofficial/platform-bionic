@@ -54,10 +54,8 @@
 __BEGIN_DECLS
 
 #if defined(__clang__)
-#if __has_warning("-Wnullability-completeness")
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wnullability-completeness"
-#endif
 #endif
 
 typedef int sig_atomic_t;
@@ -165,9 +163,7 @@ int sigtimedwait(const sigset_t* _Nonnull, siginfo_t*, const struct timespec*) _
 int sigwaitinfo(const sigset_t* _Nonnull, siginfo_t*) __INTRODUCED_IN(23);
 
 #if defined(__clang__)
-#if __has_warning("-Wnullability-completeness")
 #pragma clang diagnostic pop
-#endif
 #endif
 
 __END_DECLS
