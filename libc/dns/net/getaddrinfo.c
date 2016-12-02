@@ -560,7 +560,14 @@ int
 getaddrinfo(const char *hostname, const char *servname,
     const struct addrinfo *hints, struct addrinfo **res)
 {
-	return android_getaddrinfofornet(hostname, servname, hints, NETID_UNSET, MARK_UNSET, res);
+	struct android_net_context netcontext = {
+		.app_netid = NETID_UNSET,
+		.app_mark = MARK_UNSET,
+		.dns_netid = NETID_UNSET,
+		.dns_mark = MARK_UNSET,
+		.uid = NET_CONTEXT_INVALID_UID,
+        };
+	return android_getaddrinfofornetcontext(hostname, servname, hints, &netcontext, res);
 }
 
 int
