@@ -245,9 +245,11 @@ libc_bionic_ndk_src_files := \
     bionic/wmempcpy.cpp \
     bionic/writev.cpp \
 
+ifeq ($(BOARD_USES_LIBC_WRAPPER),true)
 libc_bionic_ndk_src_files += \
     codeaurora/PropClientDispatch.cpp \
     codeaurora/PropClientDispatchWrite.cpp
+endif
 
 libc_bionic_src_files :=
 
@@ -1248,6 +1250,7 @@ include $(CLEAR_VARS)
 
 LOCAL_SRC_FILES := $(libc_common_src_files)
 LOCAL_CFLAGS := $(libc_common_cflags)
+
 LOCAL_CONLYFLAGS := $(libc_common_conlyflags)
 LOCAL_CPPFLAGS := $(libc_common_cppflags)
 LOCAL_C_INCLUDES := $(libc_common_c_includes)
