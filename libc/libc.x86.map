@@ -1261,6 +1261,7 @@ LIBC_O {
     getsubopt; # future
     hasmntopt; # future
     lutimes; # future
+    mallopt; # future
     mblen; # future
     msgctl; # future
     msgget; # future
