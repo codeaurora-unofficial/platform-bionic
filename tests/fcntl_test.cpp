@@ -20,12 +20,14 @@
 #include <fcntl.h>
 #include <string.h>
 #include <sys/utsname.h>
+#include <sys/vfs.h>
 
 #include "TemporaryFile.h"
 
 // Glibc v2.19 doesn't include these in fcntl.h so host builds will fail without.
 #if !defined(FALLOC_FL_PUNCH_HOLE) || !defined(FALLOC_FL_KEEP_SIZE)
 #include <linux/falloc.h>
+#include <linux/magic.h>
 #endif
 
 TEST(fcntl, fcntl_smoke) {
@@ -277,9 +279,10 @@ static bool parse_kernel_release(long* const major, long* const minor) {
 }
 
 /*
- * Kernels less than 4.1 are affected.
- * Devices that fail this test should include change id from Nexus:
- * Commit: 9b431291a1fadbdbcca1485711b5bab145112293
+ * b/28760453:
+ * Kernels older than 4.1 should have ext4 FALLOC_FL_PUNCH_HOLE disabled due to CVE-2015-8839.
+ * Devices that fail this test should cherry-pick the following commit:
+ * https://android.googlesource.com/kernel/msm/+/bdba352e898cbf57c8620ad68c8abf749c784d1f
  */
 TEST(fcntl, falloc_punch) {
   long major = 0, minor = 0;
@@ -287,7 +290,11 @@ TEST(fcntl, falloc_punch) {
 
   if (major < 4 || (major == 4 && minor < 1)) {
     TemporaryFile tf;
-    ASSERT_EQ(-1, fallocate(tf.fd, FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE, 0, 1));
-    ASSERT_EQ(errno, EOPNOTSUPP);
+    struct statfs sfs;
+    ASSERT_EQ(0, fstatfs(tf.fd, &sfs));
+    if (sfs.f_type == EXT4_SUPER_MAGIC) {
+      ASSERT_EQ(-1, fallocate(tf.fd, FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE, 0, 1));
+      ASSERT_EQ(errno, EOPNOTSUPP);
+    }
   }
 }

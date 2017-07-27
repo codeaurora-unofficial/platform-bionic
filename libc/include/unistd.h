@@ -42,6 +42,10 @@
 #include <bits/seek_constants.h>
 #include <bits/sysconf.h>
 
+#ifdef USE_WRAPPER
+#include "codeaurora/PropClientDispatchWrite.h"
+#endif
+
 __BEGIN_DECLS
 
 #define STDIN_FILENO	0
@@ -173,7 +177,7 @@ off_t lseek(int __fd, off_t __offset, int __whence);
 
 off64_t lseek64(int __fd, off64_t __offset, int __whence);
 
-#if defined(__USE_FILE_OFFSET64) && __ANDROID_API__ >= __ANDROID_API_L__
+#if defined(__USE_FILE_OFFSET64)
 int truncate(const char* __path, off_t __length) __RENAME(truncate64) __INTRODUCED_IN(21);
 ssize_t pread(int __fd, void* __buf, size_t __count, off_t __offset)
   __overloadable __RENAME(pread64) __INTRODUCED_IN(12);
@@ -671,6 +675,11 @@ ssize_t read(int fd, void* buf, size_t count) {
 __BIONIC_FORTIFY_INLINE
 ssize_t write(int fd, const void* buf, size_t count) {
     size_t bos = __bos0(buf);
+    #ifdef USE_WRAPPER
+      if( __propClientDispatchWrite.propWrite ) {
+          __propClientDispatchWrite.propWrite(fd);
+      }
+    #endif
 
     if (bos == __BIONIC_FORTIFY_UNKNOWN_SIZE) {
         return __write_real(fd, buf, count);

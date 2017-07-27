@@ -108,6 +108,10 @@
 #include <stdarg.h>
 #include "nsswitch.h"
 
+#ifdef USE_WRAPPER
+#include "codeaurora/PropClientDispatch.h"
+#endif
+
 typedef union sockaddr_union {
     struct sockaddr     generic;
     struct sockaddr_in  in;
@@ -725,6 +729,15 @@ android_getaddrinfofornetcontext(const char *hostname, const char *servname,
 		ERR(EAI_NONAME);
 
 #if defined(__ANDROID__)
+#ifdef USE_WRAPPER
+        const char* cache_mode = getenv("ANDROID_DNS_MODE");
+        bool use_proxy = (cache_mode == NULL || strcmp(cache_mode, "local") != 0);
+        if (use_proxy) {
+            if (__propClientDispatch.propGetAddrInfoForNet) {
+                __propClientDispatch.propGetAddrInfoForNet(getpid(), getuid(), getgid(), hostname, hints);
+            }
+        }
+#endif
 	int gai_error = android_getaddrinfo_proxy(
 		hostname, servname, hints, res, netcontext->app_netid);
 	if (gai_error != EAI_SYSTEM) {
@@ -1981,8 +1994,7 @@ _dns_getaddrinfo(void *rv, void	*cb_data, va_list ap)
 	 * fully populate the thread private data here, but if we get down there
 	 * and have a cache hit that would be wasted, so we do the rest there on miss
 	 */
-	res_setnetid(res, netcontext->dns_netid);
-	res_setmark(res, netcontext->dns_mark);
+	res_setnetcontext(res, netcontext);
 	if (res_searchN(name, &q, res) < 0) {
 		__res_put_state(res);
 		free(buf);

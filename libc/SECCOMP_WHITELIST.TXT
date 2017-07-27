@@ -36,6 +36,9 @@ int	rt_sigreturn:rt_sigreturn(unsigned long __unused)	all
 int	rt_tgsigqueueinfo:int rt_tgsigqueueinfo(pid_t tgid, pid_t tid, int sig, siginfo_t *uinfo)	all
 int	restart_syscall:int restart_syscall()	all
 int	getrandom:int getrandom(void *buf, size_t buflen, unsigned int flags) all
+int	fstatat64|fstatat:newfstatat(int, const char*, struct stat*, int)	mips64
+int	fstat64|fstat:fstat(int, struct stat*)	mips64
+int	_flush_cache:cacheflush(char* addr, const int nbytes, const int op)	mips64
 
 # Needed for performance tools
 int	perf_event_open:perf_event_open(struct perf_event_attr *attr, pid_t pid, int cpu, int group_fd, unsigned long flags)	all
@@ -118,3 +121,9 @@ ssize_t pwritev2(int fd, const struct iovec* iov, int iovcnt, off_t offset, int 
 
 # b/37769298
 int dup2(int oldfd, int newfd)	arm,x86,mips
+
+# b/62779795
+int compat_select:_newselect(int n, unsigned long* inp, unsigned long* outp, unsigned long* exp, struct timeval* timeout) arm,x86,mips
+
+# b/62090571
+int mkdir(const char *pathname, mode_t mode)	arm,x86,mips
