@@ -15,7 +15,7 @@ cc_library_static {
 
     static_libs: ["libc_logging"],
 
-    include_dirs: ["bionic/libc"],
+    include_dirs: ["bionic/libc","bionic/libc/private"],
     export_include_dirs: ["."],
 
     sanitize: {
@@ -75,7 +75,41 @@ cc_library {
         },
     },
     allow_undefined_symbols: true,
-    include_dirs: ["bionic/libc"],
+    include_dirs: ["bionic/libc","bionic/libc/private"],
+
+    sanitize: {
+        never: true,
+    },
+    native_coverage: false,
+
+    // -Wno-error=format-zero-length needed for gcc to compile.
+    cflags: [
+        "-Wall",
+        "-Werror",
+        "-fno-stack-protector",
+        "-Wno-error=format-zero-length",
+    ],
+
+}
+
+// ==============================================================
+// libc_leak_detector.so
+// ==============================================================
+cc_library {
+    name: "libc_leak_detector",
+
+    srcs: [
+        "leak_detector.cpp",
+        "TrackLeakDetector.cpp",
+    ],
+
+    static_libs: [
+        "libc_malloc_debug_backtrace",
+        "libc_logging",
+    ],
+
+    allow_undefined_symbols: true,
+    include_dirs: ["bionic/libc","bionic/libc/private"],
 
     sanitize: {
         never: true,
@@ -118,7 +152,7 @@ cc_test {
     whole_static_libs: ["libc_malloc_debug"],
 
     local_include_dirs: ["tests"],
-    include_dirs: ["bionic/libc"],
+    include_dirs: ["bionic/libc","bionic/libc/private"],
 
     shared_libs: ["libbase"],
 
