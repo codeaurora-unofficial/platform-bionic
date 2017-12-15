@@ -35,7 +35,6 @@ class DebugData;
 class OptionData {
  public:
   OptionData(DebugData* debug) : debug_(debug) {}
-  OptionData() {};
   ~OptionData() = default;
 
  protected:

@@ -44,9 +44,6 @@
 #include "malloc_debug.h"
 #include "TrackData.h"
 
-TrackData::TrackData(DebugData* debug_data) : OptionData(debug_data) {
-}
-
 void TrackData::GetList(std::vector<const Header*>* list) {
   for (const auto& header : headers_) {
     list->push_back(header);
@@ -282,7 +279,7 @@ static void PrintLeaksSignal(int, siginfo_t*, void*) {
   }
 }
 
-TrackData::TrackData() {
+TrackData::TrackData(DebugData* debug_data) : OptionData(debug_data) {
   error_log(" SIGWINCH handler registration");
   struct sigaction enable_act;
   memset(&enable_act, 0, sizeof(enable_act));
@@ -296,4 +293,5 @@ TrackData::TrackData() {
   }
   info_log("%s: Run: 'kill -28 <pid of process>' to print memory leak information.", getprogname());
 }
+
 // Leack Patch End
