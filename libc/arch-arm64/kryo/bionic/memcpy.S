@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 The Android Open Source Project
+ * Copyright (C) 2008 The Android Open Source Project
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -26,22 +26,23 @@
  * SUCH DAMAGE.
  */
 
-#ifndef DEBUG_MALLOC_OPTIONDATA_H
-#define DEBUG_MALLOC_OPTIONDATA_H
+// Prototype: void *memcpy (void *dst, const void *src, size_t count).
 
-// Forward Declarations
-class DebugData;
+#include <private/bionic_asm.h>
 
-class OptionData {
- public:
-  OptionData(DebugData* debug) : debug_(debug) {}
-  OptionData() {};
-  ~OptionData() = default;
+ENTRY(__memcpy_chk)
+  cmp x2, x3
+  bls memcpy
 
- protected:
-  DebugData* debug_;
+  // Preserve for accurate backtrace.
+  stp x29, x30, [sp, -16]!
+  .cfi_def_cfa_offset 16
+  .cfi_rel_offset x29, 0
+  .cfi_rel_offset x30, 8
 
-  DISALLOW_COPY_AND_ASSIGN(OptionData);
-};
+  bl __memcpy_chk_fail
+END(__memcpy_chk)
 
-#endif // MALLOC_DEBUG_OPTIONDATA_H
+ENTRY(memcpy)
+  #include "memcpy_base.S"
+END(memcpy)
