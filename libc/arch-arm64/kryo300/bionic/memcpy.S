@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 The Android Open Source Project
+ * Copyright (C) 2008 The Android Open Source Project
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -26,51 +26,10 @@
  * SUCH DAMAGE.
  */
 
-#pragma once
+// Prototype: void *memcpy (void *dst, const void *src, size_t count).
 
-#include <stdint.h>
-#include <pthread.h>
+#include <private/bionic_asm.h>
 
-#include <deque>
-#include <unordered_map>
-#include <vector>
-
-#include <private/bionic_macros.h>
-
-#include "OptionData.h"
-
-// Forward declarations.
-struct BacktraceHeader;
-class Config;
-class DebugData;
-struct Header;
-
-class FreeTrackData : public OptionData {
- public:
-  FreeTrackData(DebugData* debug_data, const Config& config);
-  virtual ~FreeTrackData() = default;
-
-  void Add(const Header* header);
-
-  void VerifyAll();
-
-  void LogBacktrace(const Header* header);
-
-  void PrepareFork() { pthread_mutex_lock(&mutex_); }
-
-  void PostForkParent() { pthread_mutex_unlock(&mutex_); }
-
-  void PostForkChild() { pthread_mutex_init(&mutex_, NULL); }
-
- private:
-  void LogFreeError(const Header* header, const uint8_t* pointer);
-  void VerifyAndFree(const Header* header);
-
-  pthread_mutex_t mutex_ = PTHREAD_MUTEX_INITIALIZER;
-  std::deque<const Header*> list_;
-  std::vector<uint8_t> cmp_mem_;
-  std::unordered_map<const Header*, BacktraceHeader*> backtraces_;
-  size_t backtrace_num_frames_;
-
-  DISALLOW_COPY_AND_ASSIGN(FreeTrackData);
-};
+ENTRY(memcpy)
+  #include "memcpy_base.S"
+END(memcpy)
