@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 The Android Open Source Project
+ * Copyright (C) 2017 The Android Open Source Project
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -26,51 +26,17 @@
  * SUCH DAMAGE.
  */
 
-#pragma once
+#include <private/bionic_asm.h>
 
-#include <stdint.h>
-#include <pthread.h>
+ENTRY(__memcpy_chk)
+  cmp x2, x3
+  bls memcpy
 
-#include <vector>
-#include <unordered_set>
+  // Preserve for accurate backtrace.
+  stp x29, x30, [sp, -16]!
+  .cfi_def_cfa_offset 16
+  .cfi_rel_offset x29, 0
+  .cfi_rel_offset x30, 8
 
-#include <private/bionic_macros.h>
-
-#include "OptionData.h"
-
-// Forward declarations.
-struct Header;
-class Config;
-class DebugData;
-
-class TrackData : public OptionData {
- public:
-  explicit TrackData(DebugData* debug_data);
-  virtual ~TrackData() = default;
-
-  void GetList(std::vector<const Header*>* list);
-
-  void GetListBySizeThenBacktrace(std::vector<const Header*>* list, size_t* total_memory);
-
-  void Add(const Header* header, bool backtrace_found);
-
-  void Remove(const Header* header, bool backtrace_found);
-
-  bool Contains(const Header *header);
-
-  void GetInfo(uint8_t** info, size_t* overall_size, size_t* info_size,
-               size_t* total_memory, size_t* backtrace_size);
-
-  void DisplayLeaks();
-
-  void PrepareFork() { pthread_mutex_lock(&mutex_); }
-  void PostForkParent() { pthread_mutex_unlock(&mutex_); }
-  void PostForkChild() { pthread_mutex_init(&mutex_, NULL); }
-
- private:
-  pthread_mutex_t mutex_ = PTHREAD_MUTEX_INITIALIZER;
-  std::unordered_set<const Header*> headers_;
-  size_t total_backtrace_allocs_ = 0;
-
-  DISALLOW_COPY_AND_ASSIGN(TrackData);
-};
+  bl __memcpy_chk_fail
+END(__memcpy_chk)

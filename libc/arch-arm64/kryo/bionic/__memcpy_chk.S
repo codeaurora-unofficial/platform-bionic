@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 The Android Open Source Project
+ * Copyright (C) 2017 The Android Open Source Project
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -26,43 +26,17 @@
  * SUCH DAMAGE.
  */
 
-#pragma once
+#include <private/bionic_asm.h>
 
-#include <stdint.h>
+ENTRY(__memcpy_chk)
+  cmp x2, x3
+  bls memcpy
 
-#include <atomic>
+  // Preserve for accurate backtrace.
+  stp x29, x30, [sp, -16]!
+  .cfi_def_cfa_offset 16
+  .cfi_rel_offset x29, 0
+  .cfi_rel_offset x30, 8
 
-#include <private/bionic_macros.h>
-
-#include "OptionData.h"
-
-// Forward declarations.
-class Config;
-
-class BacktraceData : public OptionData {
- public:
-  BacktraceData(DebugData* debug_data, const Config& config, size_t* offset);
-  virtual ~BacktraceData() = default;
-
-  bool Initialize(const Config& config);
-
-  inline size_t alloc_offset() { return alloc_offset_; }
-
-  bool ShouldBacktrace() { return enabled_ == 1; }
-  void ToggleBacktraceEnabled() { enabled_.fetch_xor(1); }
-
-  void EnableDumping() { dump_ = true; }
-  bool ShouldDumpAndReset() {
-    bool expected = true;
-    return dump_.compare_exchange_strong(expected, false);
-  }
-
- private:
-  size_t alloc_offset_ = 0;
-
-  std::atomic_uint8_t enabled_;
-
-  std::atomic_bool dump_;
-
-  DISALLOW_COPY_AND_ASSIGN(BacktraceData);
-};
+  bl __memcpy_chk_fail
+END(__memcpy_chk)

@@ -628,8 +628,6 @@ cc_library_static {
                 "upstream-openbsd/lib/libc/string/stpncpy.c",
                 "upstream-openbsd/lib/libc/string/strcat.c",
                 "upstream-openbsd/lib/libc/string/strcpy.c",
-                "upstream-openbsd/lib/libc/string/strlcat.c",
-                "upstream-openbsd/lib/libc/string/strlcpy.c",
                 "upstream-openbsd/lib/libc/string/strncat.c",
                 "upstream-openbsd/lib/libc/string/strncmp.c",
                 "upstream-openbsd/lib/libc/string/strncpy.c",
@@ -811,6 +809,22 @@ cc_library_static {
             srcs: [
                 "arch-arm64/generic/bionic/__memcpy_chk.S",
             ],
+            kryo: {
+                srcs: [
+                    "arch-arm64/kryo/bionic/__memcpy_chk.S",
+                ],
+                exclude_srcs: [
+                    "arch-arm64/generic/bionic/__memcpy_chk.S",
+                ],
+            },
+            kryo300: {
+                srcs: [
+                    "arch-arm64/kryo300/bionic/__memcpy_chk.S",
+                ],
+                exclude_srcs: [
+                    "arch-arm64/generic/bionic/__memcpy_chk.S",
+                ],
+            },
         },
     },
 }
@@ -1039,6 +1053,14 @@ cc_library_static {
                     "arch-arm64/generic/bionic/memcpy.S",
                 ],
             },
+            kryo300: {
+                srcs: [
+                    "arch-arm64/kryo300/bionic/memcpy.S",
+                ],
+                exclude_srcs: [
+                    "arch-arm64/generic/bionic/memcpy.S",
+                ],
+            },
         },
 
         mips: {
@@ -1190,8 +1212,6 @@ cc_library_static {
                 "arch-x86_64/string/sse2-stpncpy-slm.S",
                 "arch-x86_64/string/sse2-strcat-slm.S",
                 "arch-x86_64/string/sse2-strcpy-slm.S",
-                "arch-x86_64/string/sse2-strlcat-slm.S",
-                "arch-x86_64/string/sse2-strlcpy-slm.S",
                 "arch-x86_64/string/sse2-strlen-slm.S",
                 "arch-x86_64/string/sse2-strncat-slm.S",
                 "arch-x86_64/string/sse2-strncpy-slm.S",
