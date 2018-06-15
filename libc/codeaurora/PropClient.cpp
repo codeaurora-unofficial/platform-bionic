@@ -74,7 +74,7 @@ static void propClientInitImpl() {
         // If the library is not available, it's not an error. We'll just use
         // default implementations of functions that it would've overridden.
 
-        async_safe_format_log(ANDROID_LOG_ERROR, "propClient", "PropClient failed to load");
+        // async_safe_format_log(ANDROID_LOG_ERROR, "propClient", "PropClient failed to load");
         return;
     }
 
