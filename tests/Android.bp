@@ -65,6 +65,7 @@ cc_test_library {
     defaults: ["bionic_tests_defaults"],
     srcs: [
         "alloca_test.cpp",
+        "android_get_device_api_level.cpp",
         "arpa_inet_test.cpp",
         "async_safe_test.cpp",
         "assert_test.cpp",
@@ -104,6 +105,7 @@ cc_test_library {
         "malloc_test.cpp",
         "math_test.cpp",
         "math_force_long_double_test.cpp",
+        "membarrier_test.cpp",
         "mntent_test.cpp",
         "netdb_test.cpp",
         "net_if_test.cpp",
@@ -112,6 +114,7 @@ cc_test_library {
         "netinet_ip_icmp_test.cpp",
         "netinet_udp_test.cpp",
         "nl_types_test.cpp",
+        "poll_test.cpp",
         "pthread_test.cpp",
         "pty_test.cpp",
         "regex_test.cpp",
@@ -306,34 +309,6 @@ cc_test_library {
     },
 }
 
-// -----------------------------------------------------------------------------
-// Library of bionic customized gtest main function, with simplified output format.
-// -----------------------------------------------------------------------------
-cc_test_library {
-    name: "libBionicGtestMain",
-    vendor_available: true,
-    defaults: ["bionic_tests_defaults"],
-    srcs: [
-        "gtest_main.cpp",
-        "gtest_globals.cpp",
-    ],
-    shared_libs: [
-        "libbase",
-        "liblog",
-    ],
-    include_dirs: [
-        "bionic/libc",
-    ],
-    target: {
-        darwin: {
-            enabled: true,
-        },
-    },
-    shared: {
-        enabled: false,
-    },
-}
-
 cc_test_library {
     name: "libBionicLoaderTests",
     defaults: [
@@ -386,16 +361,15 @@ cc_test_library {
     name: "libBionicCtsGtestMain",
     defaults: ["bionic_tests_defaults"],
     srcs: [
-        "gtest_main.cpp",
         "gtest_globals_cts.cpp",
+        "gtest_main.cpp",
     ],
-    static_libs: [
-        "libbase",
-    ],
-    cppflags: ["-DUSING_GTEST_OUTPUT_FORMAT"],
     shared: {
         enabled: false,
     },
+    whole_static_libs: [
+        "libgtest_isolated",
+    ],
 }
 
 // -----------------------------------------------------------------------------
@@ -410,7 +384,6 @@ cc_defaults {
     whole_static_libs: [
         "libBionicTests",
         "libBionicLoaderTests",
-        "libBionicGtestMain",
     ],
 
     static_libs: [
@@ -422,6 +395,7 @@ cc_defaults {
     srcs: [
         // TODO: Include __cxa_thread_atexit_test.cpp to glibc tests once it is upgraded (glibc 2.18+)
         "__cxa_thread_atexit_test.cpp",
+        "gtest_globals.cpp",
         "thread_local_test.cpp",
     ],
 
@@ -469,9 +443,18 @@ cc_defaults {
 
 cc_test {
     name: "bionic-unit-tests",
+    gtest: false,
     defaults: [
         "bionic_unit_tests_defaults",
         "bionic_tests_defaults",
+    ],
+
+    srcs: [
+        "gtest_main.cpp",
+    ],
+
+    static_libs: [
+        "libgtest_isolated",
     ],
 
     target: {
@@ -617,15 +600,17 @@ cc_test {
 // -----------------------------------------------------------------------------
 cc_test {
     name: "bionic-unit-tests-static",
+    gtest: false,
     defaults: ["bionic_tests_defaults"],
     host_supported: false,
 
     srcs: [
         "gtest_preinit_debuggerd.cpp",
+        "gtest_globals.cpp",
+        "gtest_main.cpp",
     ],
     whole_static_libs: [
         "libBionicTests",
-        "libBionicGtestMain",
     ],
 
     static_libs: [
@@ -636,6 +621,7 @@ cc_test {
         "liblog",
         "libbase",
         "libdebuggerd_handler",
+        "libgtest_isolated",
     ],
 
     static_executable: true,
@@ -649,6 +635,7 @@ cc_test {
 
 cc_test_host {
     name: "bionic-unit-tests-glibc",
+    gtest: false,
     defaults: ["bionic_tests_defaults"],
 
     srcs: [
@@ -656,6 +643,8 @@ cc_test_host {
         "dlfcn_symlink_support.cpp",
         "dlfcn_test.cpp",
         "dl_test.cpp",
+        "gtest_globals.cpp",
+        "gtest_main.cpp",
         "pthread_dlfcn_test.cpp",
     ],
 
@@ -668,7 +657,6 @@ cc_test_host {
 
     whole_static_libs: [
         "libBionicStandardTests",
-        "libBionicGtestMain",
         "libfortify1-tests-clang",
         "libfortify2-tests-clang",
     ],
@@ -677,6 +665,7 @@ cc_test_host {
         "libbase",
         "liblog",
         "libcutils",
+        "libgtest_isolated",
     ],
 
     host_ldlibs: [
@@ -684,7 +673,9 @@ cc_test_host {
         "-lutil",
     ],
 
-    include_dirs: ["bionic/libc"],
+    include_dirs: [
+        "bionic/libc",
+    ],
 
     ldflags: [
         "-Wl,--rpath,${ORIGIN}/../bionic-loader-test-libs",

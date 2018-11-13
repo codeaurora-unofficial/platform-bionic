@@ -288,6 +288,7 @@ struct ucred {
 #define SOL_ALG 279
 #define SOL_NFC 280
 #define SOL_KCM 281
+#define SOL_TLS 282
 
 #define IPX_TYPE 1
 
@@ -315,12 +316,12 @@ __socketcall int shutdown(int __fd, int __how);
 __socketcall int socket(int __af, int __type, int __protocol);
 __socketcall int socketpair(int __af, int __type, int __protocol, int __fds[2]);
 
-ssize_t recv(int __fd, void* __buf, size_t __n, int __flags) __overloadable __RENAME_CLANG(recv);
-ssize_t send(int __fd, const void* __buf, size_t __n, int __flags) __overloadable __RENAME_CLANG(send);
+ssize_t recv(int __fd, void* __buf, size_t __n, int __flags) __overloadable __RENAME(recv);
+ssize_t send(int __fd, const void* __buf, size_t __n, int __flags) __overloadable __RENAME(send);
 
 __socketcall ssize_t sendto(int __fd, const void* __buf, size_t __n, int __flags, const struct sockaddr* __dst_addr, socklen_t __dst_addr_length)
-        __overloadable __RENAME_CLANG(sendto);
-__socketcall ssize_t recvfrom(int __fd, void* __buf, size_t __n, int __flags, struct sockaddr* __src_addr, socklen_t* __src_addr_length) __overloadable __RENAME_CLANG(recvfrom);
+        __overloadable __RENAME(sendto);
+__socketcall ssize_t recvfrom(int __fd, void* __buf, size_t __n, int __flags, struct sockaddr* __src_addr, socklen_t* __src_addr_length) __overloadable __RENAME(recvfrom);
 
 #if defined(__BIONIC_INCLUDE_FORTIFY_HEADERS)
 #include <bits/fortify/socket.h>
