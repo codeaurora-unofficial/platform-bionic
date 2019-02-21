@@ -47,7 +47,7 @@ struct itimerval {
 };
 #ifndef __kernel_timespec
 struct __kernel_timespec {
-  __kernel_time64_t tv_sec;
+  __kernel_time_t tv_sec;
   long long tv_nsec;
 };
 #endif
