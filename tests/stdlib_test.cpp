@@ -36,14 +36,6 @@
 #include "math_data_test.h"
 #include "utils.h"
 
-#if defined(__BIONIC__)
-  #define ALIGNED_ALLOC_AVAILABLE 1
-#elif defined(__GLIBC_PREREQ)
-  #if __GLIBC_PREREQ(2, 16)
-    #define ALIGNED_ALLOC_AVAILABLE 1
-  #endif
-#endif
-
 template <typename T = int (*)(char*)>
 class GenericTemporaryFile {
  public:
@@ -274,7 +266,6 @@ TEST(stdlib, posix_memalign_overflow) {
 
 TEST(stdlib, aligned_alloc_sweep) {
   SKIP_WITH_HWASAN;
-#if defined(ALIGNED_ALLOC_AVAILABLE)
   // Verify powers of 2 up to 2048 allocate, and verify that all other
   // alignment values between the powers of 2 fail.
   size_t last_align = 1;
@@ -292,31 +283,20 @@ TEST(stdlib, aligned_alloc_sweep) {
     free(ptr);
     last_align = align;
   }
-#else
-  GTEST_LOG_(INFO) << "This test requires a C library that has aligned_alloc.\n";
-#endif
 }
 
 TEST(stdlib, aligned_alloc_overflow) {
   SKIP_WITH_HWASAN;
-#if defined(ALIGNED_ALLOC_AVAILABLE)
   ASSERT_TRUE(aligned_alloc(16, SIZE_MAX) == nullptr);
-#else
-  GTEST_LOG_(INFO) << "This test requires a C library that has aligned_alloc.\n";
-#endif
 }
 
 TEST(stdlib, aligned_alloc_size_not_multiple_of_alignment) {
   SKIP_WITH_HWASAN;
-#if defined(ALIGNED_ALLOC_AVAILABLE)
   for (size_t size = 1; size <= 2048; size++) {
     void* ptr = aligned_alloc(2048, size);
     ASSERT_TRUE(ptr != nullptr) << "Failed at size " << std::to_string(size);
     free(ptr);
   }
-#else
-  GTEST_LOG_(INFO) << "This test requires a C library that has aligned_alloc.\n";
-#endif
 }
 
 TEST(stdlib, realpath__NULL_filename) {
@@ -876,16 +856,18 @@ TEST(stdlib, getloadavg) {
   ASSERT_EQ(3, getloadavg(load, INT_MAX));
 
   // Read /proc/loadavg and check that it's "close enough".
-  load[0] = nan("");
   double expected[3];
   std::unique_ptr<FILE, decltype(&fclose)> fp{fopen("/proc/loadavg", "re"), fclose};
   ASSERT_EQ(3, fscanf(fp.get(), "%lf %lf %lf", &expected[0], &expected[1], &expected[2]));
+  load[0] = load[1] = load[2] = nan("");
   ASSERT_EQ(3, getloadavg(load, 3));
 
-  // It's probably too flaky if we look at the 1-minute average, so we just place a NaN there
-  // and check that it's overwritten with _something_.
+  // Check that getloadavg(3) at least overwrote the NaNs.
   ASSERT_FALSE(isnan(load[0]));
-  // For the others, rounding to an integer is pessimistic but at least gives us a sanity check.
-  ASSERT_DOUBLE_EQ(rint(expected[1]), rint(load[1]));
-  ASSERT_DOUBLE_EQ(rint(expected[2]), rint(load[2]));
+  ASSERT_FALSE(isnan(load[1]));
+  ASSERT_FALSE(isnan(load[2]));
+  // And that the difference between /proc/loadavg and getloadavg(3) is "small".
+  ASSERT_TRUE(fabs(expected[0] - load[0]) < 0.5) << expected[0] << ' ' << load[0];
+  ASSERT_TRUE(fabs(expected[1] - load[1]) < 0.5) << expected[1] << ' ' << load[1];
+  ASSERT_TRUE(fabs(expected[2] - load[2]) < 0.5) << expected[2] << ' ' << load[2];
 }

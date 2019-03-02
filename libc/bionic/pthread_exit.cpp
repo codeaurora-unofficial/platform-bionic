@@ -33,6 +33,7 @@
 #include <string.h>
 #include <sys/mman.h>
 
+#include "private/bionic_constants.h"
 #include "private/bionic_defs.h"
 #include "private/ScopedSignalBlocker.h"
 #include "pthread_internal.h"
@@ -62,12 +63,6 @@ void __pthread_cleanup_pop(__pthread_cleanup_t* c, int execute) {
   if (execute) {
     c->__cleanup_routine(c->__cleanup_arg);
   }
-}
-
-static void __pthread_unmap_tls(pthread_internal_t* thread) {
-  // Unmap the bionic TLS, including guard pages.
-  void* allocation = reinterpret_cast<char*>(thread->bionic_tls) - PTHREAD_GUARD_SIZE;
-  munmap(allocation, BIONIC_TLS_SIZE + 2 * PTHREAD_GUARD_SIZE);
 }
 
 __BIONIC_WEAK_FOR_NATIVE_BRIDGE
@@ -103,15 +98,22 @@ void pthread_exit(void* return_value) {
     thread->alternate_signal_stack = nullptr;
   }
 
-#ifdef __aarch64__
-  // Free the shadow call stack and guard pages.
-  munmap(thread->shadow_call_stack_guard_region, SCS_SIZE);
-#endif
-
   ThreadJoinState old_state = THREAD_NOT_JOINED;
   while (old_state == THREAD_NOT_JOINED &&
          !atomic_compare_exchange_weak(&thread->join_state, &old_state, THREAD_EXITED_NOT_JOINED)) {
   }
+
+  // We don't want to take a signal after unmapping the stack, the shadow call
+  // stack, or dynamic TLS memory.
+  ScopedSignalBlocker ssb;
+
+#ifdef __aarch64__
+  // Free the shadow call stack and guard pages.
+  munmap(thread->shadow_call_stack_guard_region, SCS_GUARD_REGION_SIZE);
+#endif
+
+  // Free the ELF TLS DTV and all dynamically-allocated ELF TLS memory.
+  __free_dynamic_tls(__get_bionic_tcb());
 
   if (old_state == THREAD_DETACHED) {
     // The thread is detached, no one will use pthread_internal_t after pthread_exit.
@@ -126,19 +128,13 @@ void pthread_exit(void* return_value) {
     if (thread->mmap_size != 0) {
       // We need to free mapped space for detached threads when they exit.
       // That's not something we can do in C.
-
-      // We don't want to take a signal after we've unmapped the stack.
-      // That's one last thing we can do before dropping to assembler.
-      ScopedSignalBlocker ssb;
-      __pthread_unmap_tls(thread);
       __hwasan_thread_exit();
-      _exit_with_stack_teardown(thread->attr.stack_base, thread->mmap_size);
+      _exit_with_stack_teardown(thread->mmap_base, thread->mmap_size);
     }
   }
 
   // No need to free mapped space. Either there was no space mapped, or it is left for
   // the pthread_join caller to clean up.
-  __pthread_unmap_tls(thread);
   __hwasan_thread_exit();
   __exit(0);
 }

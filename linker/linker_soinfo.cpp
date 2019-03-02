@@ -82,8 +82,15 @@ void soinfo::set_dt_runpath(const char* path) {
   split_path(path, ":", &runpaths);
 
   std::string origin = dirname(get_realpath());
-  // FIXME: add $LIB and $PLATFORM.
-  std::vector<std::pair<std::string, std::string>> params = {{"ORIGIN", origin}};
+  // FIXME: add $PLATFORM.
+  std::vector<std::pair<std::string, std::string>> params = {
+    {"ORIGIN", origin},
+#if defined(LIB_PATH)
+    {"LIB", LIB_PATH},
+#else
+#error "LIB_PATH not defined"
+#endif
+  };
   for (auto&& s : runpaths) {
     format_string(&s, params);
   }
@@ -628,6 +635,10 @@ android_namespace_list_t& soinfo::get_secondary_namespaces() {
   return secondary_namespaces_;
 }
 
+soinfo_tls* soinfo::get_tls() const {
+  return has_min_version(5) ? tls_.get() : nullptr;
+}
+
 ElfW(Addr) soinfo::resolve_symbol_address(const ElfW(Sym)* s) const {
   if (ELF_ST_TYPE(s->st_info) == STT_GNU_IFUNC) {
     return call_ifunc_resolver(s->st_value + load_bias);
@@ -748,7 +759,7 @@ void soinfo::generate_handle() {
   // Make sure the handle is unique and does not collide
   // with special values which are RTLD_DEFAULT and RTLD_NEXT.
   do {
-    if (!is_init()) {
+    if (!is_first_stage_init()) {
       arc4random_buf(&handle_, sizeof(handle_));
     } else {
       // arc4random* is not available in init because /dev/urandom hasn't yet been

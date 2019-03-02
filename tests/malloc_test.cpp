@@ -25,6 +25,7 @@
 #include <tinyxml2.h>
 
 #include "private/bionic_config.h"
+#include "private/bionic_malloc.h"
 #include "utils.h"
 
 #if defined(__BIONIC__)
@@ -560,3 +561,73 @@ TEST(malloc, reallocarray) {
   GTEST_LOG_(INFO) << "This test requires a C library with reallocarray.\n";
 #endif
 }
+
+TEST(malloc, mallinfo) {
+#if defined(__BIONIC__)
+  static size_t sizes[] = {
+    8, 32, 128, 4096, 32768, 131072, 1024000, 10240000, 20480000, 300000000
+  };
+
+  constexpr static size_t kMaxAllocs = 50;
+
+  for (size_t size : sizes) {
+    // If some of these allocations are stuck in a thread cache, then keep
+    // looping until we make an allocation that changes the total size of the
+    // memory allocated.
+    // jemalloc implementations counts the thread cache allocations against
+    // total memory allocated.
+    void* ptrs[kMaxAllocs] = {};
+    bool pass = false;
+    for (size_t i = 0; i < kMaxAllocs; i++) {
+      size_t allocated = mallinfo().uordblks;
+      ptrs[i] = malloc(size);
+      ASSERT_TRUE(ptrs[i] != nullptr);
+      size_t new_allocated = mallinfo().uordblks;
+      if (allocated != new_allocated) {
+        size_t usable_size = malloc_usable_size(ptrs[i]);
+        ASSERT_GE(new_allocated, allocated + usable_size)
+            << "Failed at size " << size << " usable size " << usable_size;
+        pass = true;
+        break;
+      }
+    }
+    for (void* ptr : ptrs) {
+      free(ptr);
+    }
+    ASSERT_TRUE(pass)
+        << "For size " << size << " allocated bytes did not increase after "
+        << kMaxAllocs << " allocations.";
+  }
+#else
+  GTEST_LOG_(INFO) << "Host glibc does not pass this test, skipping.\n";
+#endif
+}
+
+TEST(android_mallopt, error_on_unexpected_option) {
+#if defined(__BIONIC__)
+  const int unrecognized_option = -1;
+  errno = 0;
+  EXPECT_EQ(false, android_mallopt(unrecognized_option, nullptr, 0));
+  EXPECT_EQ(ENOTSUP, errno);
+#else
+  GTEST_LOG_(INFO) << "This tests a bionic implementation detail.\n";
+#endif
+}
+
+TEST(android_mallopt, init_zygote_child_profiling) {
+#if defined(__BIONIC__)
+  // Successful call.
+  errno = 0;
+  EXPECT_EQ(true, android_mallopt(M_INIT_ZYGOTE_CHILD_PROFILING, nullptr, 0));
+  EXPECT_EQ(0, errno);
+
+  // Unexpected arguments rejected.
+  errno = 0;
+  char unexpected = 0;
+  EXPECT_EQ(false, android_mallopt(M_INIT_ZYGOTE_CHILD_PROFILING, &unexpected, 1));
+  EXPECT_EQ(EINVAL, errno);
+#else
+  GTEST_LOG_(INFO) << "This tests a bionic implementation detail.\n";
+#endif
+}
+

@@ -51,6 +51,7 @@
 #include <elf.h>
 #include "libc_init_common.h"
 
+#include "private/bionic_elf_tls.h"
 #include "private/bionic_globals.h"
 #include "private/bionic_macros.h"
 #include "private/bionic_ssp.h"
@@ -77,11 +78,19 @@ __LIBC_HIDDEN__ void* __libc_sysinfo = reinterpret_cast<void*>(__libc_int0x80);
 // after __stack_chk_guard is initialized and therefore can safely have a stack
 // protector.
 __attribute__((noinline))
-static void __libc_preinit_impl(KernelArgumentBlock& args) {
-  __libc_shared_globals = args.shared_globals;
+static void __libc_preinit_impl() {
+#if defined(__i386__)
+  __libc_init_sysinfo();
+#endif
 
-  __libc_init_globals(args);
-  __libc_init_common(args);
+  // Register libc.so's copy of the TLS generation variable so the linker can
+  // update it when it loads or unloads a shared object.
+  TlsModules& tls_modules = __libc_shared_globals()->tls_modules;
+  tls_modules.generation_libc_so = &__libc_tls_generation_copy;
+  __libc_tls_generation_copy = tls_modules.generation;
+
+  __libc_init_globals();
+  __libc_init_common();
 
   // Hooks for various libraries to let them know that we're starting up.
   __libc_globals.mutate(__libc_init_malloc);
@@ -96,17 +105,11 @@ static void __libc_preinit_impl(KernelArgumentBlock& args) {
 // to run before any others (such as the jemalloc constructor), and lower
 // is better (http://b/68046352).
 __attribute__((constructor(1))) static void __libc_preinit() {
-  // Read the kernel argument block pointer from TLS, then clear the slot so no
-  // other initializer sees its value.
-  void** tls = __get_tls();
-  KernelArgumentBlock* args = static_cast<KernelArgumentBlock*>(tls[TLS_SLOT_BIONIC_PREINIT]);
-  tls[TLS_SLOT_BIONIC_PREINIT] = nullptr;
-
   // The linker has initialized its copy of the global stack_chk_guard, and filled in the main
   // thread's TLS slot with that value. Initialize the local global stack guard with its value.
-  __stack_chk_guard = reinterpret_cast<uintptr_t>(tls[TLS_SLOT_STACK_GUARD]);
+  __stack_chk_guard = reinterpret_cast<uintptr_t>(__get_tls()[TLS_SLOT_STACK_GUARD]);
 
-  __libc_preinit_impl(*args);
+  __libc_preinit_impl();
 }
 
 // This function is called from the executable's _start entry point
@@ -133,7 +136,13 @@ __noreturn void __libc_init(void* raw_args,
     __cxa_atexit(__libc_fini,structors->fini_array,nullptr);
   }
 
-  exit(slingshot(args.argc - __libc_shared_globals->initial_linker_arg_count,
-                 args.argv + __libc_shared_globals->initial_linker_arg_count,
+  exit(slingshot(args.argc - __libc_shared_globals()->initial_linker_arg_count,
+                 args.argv + __libc_shared_globals()->initial_linker_arg_count,
                  args.envp));
+}
+
+extern "C" libc_shared_globals* __loader_shared_globals();
+
+__LIBC_HIDDEN__ libc_shared_globals* __libc_shared_globals() {
+  return __loader_shared_globals();
 }

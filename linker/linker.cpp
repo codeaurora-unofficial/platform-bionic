@@ -65,8 +65,10 @@
 #include "linker_phdr.h"
 #include "linker_relocs.h"
 #include "linker_reloc_iterators.h"
+#include "linker_tls.h"
 #include "linker_utils.h"
 
+#include "private/bionic_globals.h"
 #include "android-base/macros.h"
 #include "android-base/strings.h"
 #include "android-base/stringprintf.h"
@@ -354,7 +356,9 @@ static bool realpath_fd(int fd, std::string* realpath) {
   std::vector<char> buf(PATH_MAX), proc_self_fd(PATH_MAX);
   async_safe_format_buffer(&proc_self_fd[0], proc_self_fd.size(), "/proc/self/fd/%d", fd);
   if (readlink(&proc_self_fd[0], &buf[0], buf.size()) == -1) {
-    PRINT("readlink(\"%s\") failed: %s [fd=%d]", &proc_self_fd[0], strerror(errno), fd);
+    if (!is_first_stage_init()) {
+      PRINT("readlink(\"%s\") failed: %s [fd=%d]", &proc_self_fd[0], strerror(errno), fd);
+    }
     return false;
   }
 
@@ -532,6 +536,10 @@ class SizeBasedAllocator {
     allocator_.free(ptr);
   }
 
+  static void purge() {
+    allocator_.purge();
+  }
+
  private:
   static LinkerBlockAllocator allocator_;
 };
@@ -548,6 +556,10 @@ class TypeBasedAllocator {
 
   static void free(T* ptr) {
     SizeBasedAllocator<sizeof(T)>::free(ptr);
+  }
+
+  static void purge() {
+    SizeBasedAllocator<sizeof(T)>::purge();
   }
 };
 
@@ -599,6 +611,9 @@ class LoadTask {
   }
 
   void set_fd(int fd, bool assume_ownership) {
+    if (fd_ != -1 && close_fd_) {
+      close(fd_);
+    }
     fd_ = fd;
     close_fd_ = assume_ownership;
   }
@@ -993,8 +1008,10 @@ static int open_library_in_zipfile(ZipArchiveCache* zip_archive_cache,
   if (realpath_fd(fd, realpath)) {
     *realpath += separator;
   } else {
-    PRINT("warning: unable to get realpath for the library \"%s\". Will use given path.",
-          normalized_path.c_str());
+    if (!is_first_stage_init()) {
+      PRINT("warning: unable to get realpath for the library \"%s\". Will use given path.",
+            normalized_path.c_str());
+    }
     *realpath = normalized_path;
   }
 
@@ -1024,7 +1041,10 @@ static int open_library_at_path(ZipArchiveCache* zip_archive_cache,
     if (fd != -1) {
       *file_offset = 0;
       if (!realpath_fd(fd, realpath)) {
-        PRINT("warning: unable to get realpath for the library \"%s\". Will use given path.", path);
+        if (!is_first_stage_init()) {
+          PRINT("warning: unable to get realpath for the library \"%s\". Will use given path.",
+                path);
+        }
         *realpath = path;
       }
     }
@@ -1071,7 +1091,10 @@ static int open_library(android_namespace_t* ns,
       if (fd != -1) {
         *file_offset = 0;
         if (!realpath_fd(fd, realpath)) {
-          PRINT("warning: unable to get realpath for the library \"%s\". Will use given path.", name);
+          if (!is_first_stage_init()) {
+            PRINT("warning: unable to get realpath for the library \"%s\". Will use given path.",
+                  name);
+          }
           *realpath = name;
         }
       }
@@ -1354,8 +1377,12 @@ static bool load_library(android_namespace_t* ns,
     }
 
     if (!realpath_fd(extinfo->library_fd, &realpath)) {
-      PRINT("warning: unable to get realpath for the library \"%s\" by extinfo->library_fd. "
-            "Will use given name.", name);
+      if (!is_first_stage_init()) {
+        PRINT(
+            "warning: unable to get realpath for the library \"%s\" by extinfo->library_fd. "
+            "Will use given name.",
+            name);
+      }
       realpath = name;
     }
 
@@ -1510,9 +1537,9 @@ static bool find_library_internal(android_namespace_t* ns,
 static void soinfo_unload(soinfo* si);
 
 static void shuffle(std::vector<LoadTask*>* v) {
-  if (is_init()) {
-    // arc4random* is not available in init because /dev/random hasn't yet been
-    // created.
+  if (is_first_stage_init()) {
+    // arc4random* is not available in first stage init because /dev/random
+    // hasn't yet been created.
     return;
   }
   for (size_t i = 0, size = v->size(); i < size; ++i) {
@@ -1638,6 +1665,7 @@ bool find_libraries(android_namespace_t* ns,
     if (!si->is_linked() && !si->prelink_image()) {
       return false;
     }
+    register_soinfo_tls(si);
   }
 
   // Step 4: Construct the global group. Note: DF_1_GLOBAL bit of a library is
@@ -1873,6 +1901,7 @@ static void soinfo_unload_impl(soinfo* root) {
            si->get_realpath(),
            si);
     notify_gdb_of_unload(si);
+    unregister_soinfo_tls(si);
     get_cfi_shadow()->BeforeUnload(si);
     soinfo_free(si);
   }
@@ -2052,6 +2081,8 @@ void* do_dlopen(const char* name, int flags,
          caller == nullptr ? "(null)" : caller->get_realpath(),
          ns == nullptr ? "(null)" : ns->get_name(),
          ns);
+
+  auto purge_guard = android::base::make_scope_guard([&]() { purge_unused_memory(); });
 
   auto failure_guard = android::base::make_scope_guard(
       [&]() { LD_LOG(kLogDlopen, "... dlopen failed: %s", linker_get_error_buffer()); });
@@ -2652,16 +2683,33 @@ static ElfW(Addr) get_addend(ElfW(Rela)* rela, ElfW(Addr) reloc_addr __unused) {
 #else
 static ElfW(Addr) get_addend(ElfW(Rel)* rel, ElfW(Addr) reloc_addr) {
   if (ELFW(R_TYPE)(rel->r_info) == R_GENERIC_RELATIVE ||
-      ELFW(R_TYPE)(rel->r_info) == R_GENERIC_IRELATIVE) {
+      ELFW(R_TYPE)(rel->r_info) == R_GENERIC_IRELATIVE ||
+      ELFW(R_TYPE)(rel->r_info) == R_GENERIC_TLS_DTPREL ||
+      ELFW(R_TYPE)(rel->r_info) == R_GENERIC_TLS_TPREL) {
     return *reinterpret_cast<ElfW(Addr)*>(reloc_addr);
   }
   return 0;
 }
 #endif
 
+static bool is_tls_reloc(ElfW(Word) type) {
+  switch (type) {
+    case R_GENERIC_TLS_DTPMOD:
+    case R_GENERIC_TLS_DTPREL:
+    case R_GENERIC_TLS_TPREL:
+    case R_GENERIC_TLSDESC:
+      return true;
+    default:
+      return false;
+  }
+}
+
 template<typename ElfRelIteratorT>
 bool soinfo::relocate(const VersionTracker& version_tracker, ElfRelIteratorT&& rel_iterator,
                       const soinfo_list_t& global_group, const soinfo_list_t& local_group) {
+  const size_t tls_tp_base = __libc_shared_globals()->static_tls_layout.offset_thread_pointer();
+  std::vector<std::pair<TlsDescriptor*, size_t>> deferred_tlsdesc_relocs;
+
   for (size_t idx = 0; rel_iterator.has_next(); ++idx) {
     const auto rel = rel_iterator.next();
     if (rel == nullptr) {
@@ -2684,7 +2732,26 @@ bool soinfo::relocate(const VersionTracker& version_tracker, ElfRelIteratorT&& r
     const ElfW(Sym)* s = nullptr;
     soinfo* lsi = nullptr;
 
-    if (sym != 0) {
+    if (sym == 0) {
+      // By convention in ld.bfd and lld, an omitted symbol on a TLS relocation
+      // is a reference to the current module.
+      if (is_tls_reloc(type)) {
+        lsi = this;
+      }
+    } else if (ELF_ST_BIND(symtab_[sym].st_info) == STB_LOCAL && is_tls_reloc(type)) {
+      // In certain situations, the Gold linker accesses a TLS symbol using a
+      // relocation to an STB_LOCAL symbol in .dynsym of either STT_SECTION or
+      // STT_TLS type. Bionic doesn't support these relocations, so issue an
+      // error. References:
+      //  - https://groups.google.com/d/topic/generic-abi/dJ4_Y78aQ2M/discussion
+      //  - https://sourceware.org/bugzilla/show_bug.cgi?id=17699
+      s = &symtab_[sym];
+      sym_name = get_string(s->st_name);
+      DL_ERR("unexpected TLS reference to local symbol \"%s\": "
+             "sym type %d, rel type %u (idx %zu of \"%s\")",
+             sym_name, ELF_ST_TYPE(s->st_info), type, idx, get_realpath());
+      return false;
+    } else {
       sym_name = get_string(symtab_[sym].st_name);
       const version_info* vi = nullptr;
 
@@ -2721,6 +2788,10 @@ bool soinfo::relocate(const VersionTracker& version_tracker, ElfRelIteratorT&& r
           case R_GENERIC_GLOB_DAT:
           case R_GENERIC_RELATIVE:
           case R_GENERIC_IRELATIVE:
+          case R_GENERIC_TLS_DTPMOD:
+          case R_GENERIC_TLS_DTPREL:
+          case R_GENERIC_TLS_TPREL:
+          case R_GENERIC_TLSDESC:
 #if defined(__aarch64__)
           case R_AARCH64_ABS64:
           case R_AARCH64_ABS32:
@@ -2768,12 +2839,26 @@ bool soinfo::relocate(const VersionTracker& version_tracker, ElfRelIteratorT&& r
           }
         }
 #endif
-        if (ELF_ST_TYPE(s->st_info) == STT_TLS) {
-          DL_ERR("unsupported ELF TLS symbol \"%s\" referenced by \"%s\"",
-                 sym_name, get_realpath());
-          return false;
+        if (is_tls_reloc(type)) {
+          if (ELF_ST_TYPE(s->st_info) != STT_TLS) {
+            DL_ERR("reference to non-TLS symbol \"%s\" from TLS relocation in \"%s\"",
+                   sym_name, get_realpath());
+            return false;
+          }
+          if (lsi->get_tls() == nullptr) {
+            DL_ERR("TLS relocation refers to symbol \"%s\" in solib \"%s\" with no TLS segment",
+                   sym_name, lsi->get_realpath());
+            return false;
+          }
+          sym_addr = s->st_value;
+        } else {
+          if (ELF_ST_TYPE(s->st_info) == STT_TLS) {
+            DL_ERR("reference to TLS symbol \"%s\" from non-TLS relocation in \"%s\"",
+                   sym_name, get_realpath());
+            return false;
+          }
+          sym_addr = lsi->resolve_symbol_address(s);
         }
-        sym_addr = lsi->resolve_symbol_address(s);
 #if !defined(__LP64__)
         if (protect_segments) {
           if (phdr_table_unprotect_segments(phdr, phnum, load_bias) < 0) {
@@ -2846,6 +2931,104 @@ bool soinfo::relocate(const VersionTracker& version_tracker, ElfRelIteratorT&& r
           *reinterpret_cast<ElfW(Addr)*>(reloc) = ifunc_addr;
         }
         break;
+      case R_GENERIC_TLS_TPREL:
+        count_relocation(kRelocRelative);
+        MARK(rel->r_offset);
+        {
+          ElfW(Addr) tpoff = 0;
+          if (lsi == nullptr) {
+            // Unresolved weak relocation. Leave tpoff at 0 to resolve
+            // &weak_tls_symbol to __get_tls().
+          } else {
+            CHECK(lsi->get_tls() != nullptr); // We rejected a missing TLS segment above.
+            const TlsModule& mod = get_tls_module(lsi->get_tls()->module_id);
+            if (mod.static_offset != SIZE_MAX) {
+              tpoff += mod.static_offset - tls_tp_base;
+            } else {
+              DL_ERR("TLS symbol \"%s\" in dlopened \"%s\" referenced from \"%s\" using IE access model",
+                     sym_name, lsi->get_realpath(), get_realpath());
+              return false;
+            }
+          }
+          tpoff += sym_addr + addend;
+          TRACE_TYPE(RELO, "RELO TLS_TPREL %16p <- %16p %s\n",
+                     reinterpret_cast<void*>(reloc),
+                     reinterpret_cast<void*>(tpoff), sym_name);
+          *reinterpret_cast<ElfW(Addr)*>(reloc) = tpoff;
+        }
+        break;
+
+#if !defined(__aarch64__)
+      // Omit support for DTPMOD/DTPREL on arm64, at least until
+      // http://b/123385182 is fixed. arm64 uses TLSDESC instead.
+      case R_GENERIC_TLS_DTPMOD:
+        count_relocation(kRelocRelative);
+        MARK(rel->r_offset);
+        {
+          size_t module_id = 0;
+          if (lsi == nullptr) {
+            // Unresolved weak relocation. Evaluate the module ID to 0.
+          } else {
+            CHECK(lsi->get_tls() != nullptr); // We rejected a missing TLS segment above.
+            module_id = lsi->get_tls()->module_id;
+          }
+          TRACE_TYPE(RELO, "RELO TLS_DTPMOD %16p <- %zu %s\n",
+                     reinterpret_cast<void*>(reloc), module_id, sym_name);
+          *reinterpret_cast<ElfW(Addr)*>(reloc) = module_id;
+        }
+        break;
+      case R_GENERIC_TLS_DTPREL:
+        count_relocation(kRelocRelative);
+        MARK(rel->r_offset);
+        TRACE_TYPE(RELO, "RELO TLS_DTPREL %16p <- %16p %s\n",
+                   reinterpret_cast<void*>(reloc),
+                   reinterpret_cast<void*>(sym_addr + addend), sym_name);
+        *reinterpret_cast<ElfW(Addr)*>(reloc) = sym_addr + addend;
+        break;
+#endif  // !defined(__aarch64__)
+
+#if defined(__aarch64__)
+      // Bionic currently only implements TLSDESC for arm64. This implementation should work with
+      // other architectures, as long as the resolver functions are implemented.
+      case R_GENERIC_TLSDESC:
+        count_relocation(kRelocRelative);
+        MARK(rel->r_offset);
+        {
+          TlsDescriptor* desc = reinterpret_cast<TlsDescriptor*>(reloc);
+          if (lsi == nullptr) {
+            // Unresolved weak relocation.
+            desc->func = tlsdesc_resolver_unresolved_weak;
+            desc->arg = addend;
+            TRACE_TYPE(RELO, "RELO TLSDESC %16p <- unresolved weak 0x%zx %s\n",
+                       reinterpret_cast<void*>(reloc), static_cast<size_t>(addend), sym_name);
+          } else {
+            CHECK(lsi->get_tls() != nullptr); // We rejected a missing TLS segment above.
+            size_t module_id = lsi->get_tls()->module_id;
+            const TlsModule& mod = get_tls_module(module_id);
+            if (mod.static_offset != SIZE_MAX) {
+              desc->func = tlsdesc_resolver_static;
+              desc->arg = mod.static_offset - tls_tp_base + sym_addr + addend;
+              TRACE_TYPE(RELO, "RELO TLSDESC %16p <- static (0x%zx - 0x%zx + 0x%zx + 0x%zx) %s\n",
+                         reinterpret_cast<void*>(reloc), mod.static_offset, tls_tp_base,
+                         static_cast<size_t>(sym_addr), static_cast<size_t>(addend), sym_name);
+            } else {
+              tlsdesc_args_.push_back({
+                .generation = mod.first_generation,
+                .index.module_id = module_id,
+                .index.offset = sym_addr + addend,
+              });
+              // Defer the TLSDESC relocation until the address of the TlsDynamicResolverArg object
+              // is finalized.
+              deferred_tlsdesc_relocs.push_back({ desc, tlsdesc_args_.size() - 1 });
+              const TlsDynamicResolverArg& desc_arg = tlsdesc_args_.back();
+              TRACE_TYPE(RELO, "RELO TLSDESC %16p <- dynamic (gen %zu, mod %zu, off %zu) %s",
+                         reinterpret_cast<void*>(reloc), desc_arg.generation,
+                         desc_arg.index.module_id, desc_arg.index.offset, sym_name);
+            }
+          }
+        }
+        break;
+#endif  // defined(R_GENERIC_TLSDESC)
 
 #if defined(__aarch64__)
       case R_AARCH64_ABS64:
@@ -2947,14 +3130,6 @@ bool soinfo::relocate(const VersionTracker& version_tracker, ElfRelIteratorT&& r
          */
         DL_ERR("%s R_AARCH64_COPY relocations are not supported", get_realpath());
         return false;
-      case R_AARCH64_TLS_TPREL64:
-        TRACE_TYPE(RELO, "RELO TLS_TPREL64 *** %16llx <- %16llx - %16llx\n",
-                   reloc, (sym_addr + addend), rel->r_offset);
-        break;
-      case R_AARCH64_TLSDESC:
-        TRACE_TYPE(RELO, "RELO TLSDESC *** %16llx <- %16llx - %16llx\n",
-                   reloc, (sym_addr + addend), rel->r_offset);
-        break;
 #elif defined(__x86_64__)
       case R_X86_64_32:
         count_relocation(kRelocRelative);
@@ -3024,6 +3199,13 @@ bool soinfo::relocate(const VersionTracker& version_tracker, ElfRelIteratorT&& r
         return false;
     }
   }
+
+  for (const std::pair<TlsDescriptor*, size_t>& pair : deferred_tlsdesc_relocs) {
+    TlsDescriptor* desc = pair.first;
+    desc->func = tlsdesc_resolver_dynamic;
+    desc->arg = reinterpret_cast<size_t>(&tlsdesc_args_[pair.second]);
+  }
+
   return true;
 }
 #endif  // !defined(__mips__)
@@ -3058,6 +3240,19 @@ bool soinfo::prelink_image() {
   (void) phdr_table_get_arm_exidx(phdr, phnum, load_bias,
                                   &ARM_exidx, &ARM_exidx_count);
 #endif
+
+  TlsSegment tls_segment;
+  if (__bionic_get_tls_segment(phdr, phnum, load_bias, &tls_segment)) {
+    if (!__bionic_check_tls_alignment(&tls_segment.alignment)) {
+      if (!relocating_linker) {
+        DL_ERR("TLS segment alignment in \"%s\" is not a power of 2: %zu",
+               get_realpath(), tls_segment.alignment);
+      }
+      return false;
+    }
+    tls_ = std::make_unique<soinfo_tls>();
+    tls_->segment = tls_segment;
+  }
 
   // Extract useful information from dynamic section.
   // Note that: "Except for the DT_NULL element at the end of the array,
@@ -3424,13 +3619,14 @@ bool soinfo::prelink_image() {
         // this is parsed after we have strtab initialized (see below).
         break;
 
+      case DT_TLSDESC_GOT:
+      case DT_TLSDESC_PLT:
+        // These DT entries are used for lazy TLSDESC relocations. Bionic
+        // resolves everything eagerly, so these can be ignored.
+        break;
+
       default:
         if (!relocating_linker) {
-          if (d->d_tag == DT_TLSDESC_GOT || d->d_tag == DT_TLSDESC_PLT) {
-            DL_ERR("unsupported ELF TLS DT entry in \"%s\"", get_realpath());
-            return false;
-          }
-
           const char* tag_name;
           if (d->d_tag == DT_RPATH) {
             tag_name = "DT_RPATH";
@@ -3865,7 +4061,7 @@ std::vector<android_namespace_t*> init_default_namespaces(const char* executable
 
   std::vector<android_namespace_t*> created_namespaces;
   created_namespaces.reserve(namespaces.size());
-  for (auto kv : namespaces) {
+  for (const auto& kv : namespaces) {
     created_namespaces.push_back(kv.second);
   }
   return created_namespaces;
@@ -3882,4 +4078,18 @@ android_namespace_t* get_exported_namespace(const char* name) {
     return nullptr;
   }
   return it->second;
+}
+
+void purge_unused_memory() {
+  // For now, we only purge the memory used by LoadTask because we know those
+  // are temporary objects.
+  //
+  // Purging other LinkerBlockAllocator hardly yields much because they hold
+  // information about namespaces and opened libraries, which are not freed
+  // when the control leaves the linker.
+  //
+  // Purging BionicAllocator may give us a few dirty pages back, but those pages
+  // would be already zeroed out, so they compress easily in ZRAM.  Therefore,
+  // it is not worth munmap()'ing those pages.
+  TypeBasedAllocator<LoadTask>::purge();
 }
