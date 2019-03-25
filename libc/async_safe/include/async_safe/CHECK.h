@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008 The Android Open Source Project
+ * Copyright (C) 2019 The Android Open Source Project
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -26,22 +26,22 @@
  * SUCH DAMAGE.
  */
 
-#include "private/bionic_auxv.h"
-#include "private/bionic_globals.h"
+#pragma once
 
-// This file is compiled without stack protection, because it runs before TLS
-// has been set up.
+#include <sys/cdefs.h>
 
-__LIBC_HIDDEN__ __attribute__((__naked__)) void __libc_int0x80() {
-  __asm__ volatile("int $0x80; ret");
-}
+#include <async_safe/log.h>
 
-__LIBC_HIDDEN__ void __libc_init_sysinfo() {
-  bool dummy;
-  __libc_sysinfo = reinterpret_cast<void*>(__bionic_getauxval(AT_SYSINFO, dummy));
-}
+__BEGIN_DECLS
 
-// TODO: lose this function and just access __libc_sysinfo directly.
-__LIBC_HIDDEN__ extern "C" void* __kernel_syscall() {
-  return __libc_sysinfo;
-}
+// TODO: replace this with something more like <android-base/logging.h>'s family of macros.
+
+#define CHECK(predicate) \
+  do { \
+    if (!(predicate)) { \
+      async_safe_fatal("%s:%d: %s CHECK '" #predicate "' failed", \
+          __FILE__, __LINE__, __FUNCTION__); \
+    } \
+  } while(0)
+
+__END_DECLS
