@@ -165,7 +165,7 @@ static void add_vdso() {
   si->load_bias = get_elf_exec_load_bias(ehdr_vdso);
 
   si->prelink_image();
-  si->link_image(g_empty_list, soinfo_list_t::make_list(si), nullptr);
+  si->link_image(g_empty_list, soinfo_list_t::make_list(si), nullptr, nullptr);
   // prevents accidental unloads...
   si->set_dt_flags_1(si->get_dt_flags_1() | DF_1_NODELETE);
   si->set_linked();
@@ -281,7 +281,8 @@ static ExecutableInfo load_executable(const char* orig_path) {
   if (!elf_reader.Read(result.path.c_str(), fd.get(), file_offset, result.file_stat.st_size)) {
     __linker_error("error: %s\n", linker_get_error_buffer());
   }
-  if (!elf_reader.Load(nullptr)) {
+  address_space_params address_space;
+  if (!elf_reader.Load(&address_space)) {
     __linker_error("error: %s\n", linker_get_error_buffer());
   }
 
@@ -448,7 +449,7 @@ static ElfW(Addr) linker_main(KernelArgumentBlock& args, const char* exe_to_load
                       &namespaces)) {
     __linker_cannot_link(g_argv[0]);
   } else if (needed_libraries_count == 0) {
-    if (!si->link_image(g_empty_list, soinfo_list_t::make_list(si), nullptr)) {
+    if (!si->link_image(g_empty_list, soinfo_list_t::make_list(si), nullptr, nullptr)) {
       __linker_cannot_link(g_argv[0]);
     }
     si->increment_ref_count();
@@ -553,6 +554,24 @@ static void get_elf_base_from_phdr(const ElfW(Phdr)* phdr_table, size_t phdr_cou
   async_safe_fatal("Could not find a PHDR: broken executable?");
 }
 
+// Detect an attempt to run the linker on itself. e.g.:
+//   /system/bin/linker64 /system/bin/linker64
+// Use priority-1 to run this constructor before other constructors.
+__attribute__((constructor(1))) static void detect_self_exec() {
+  // Normally, the linker initializes the auxv global before calling its
+  // constructors. If the linker loads itself, though, the first loader calls
+  // the second loader's constructors before calling __linker_init.
+  if (__libc_shared_globals()->auxv != nullptr) {
+    return;
+  }
+#if defined(__i386__)
+  // We don't have access to the auxv struct from here, so use the int 0x80
+  // fallback.
+  __libc_sysinfo = reinterpret_cast<void*>(__libc_int0x80);
+#endif
+  __linker_error("error: linker cannot load itself\n");
+}
+
 static ElfW(Addr) __attribute__((noinline))
 __linker_init_post_relocation(KernelArgumentBlock& args, soinfo& linker_so);
 
@@ -575,18 +594,8 @@ extern "C" ElfW(Addr) __linker_init(void* raw_args) {
   // another program), AT_BASE is 0.
   ElfW(Addr) linker_addr = getauxval(AT_BASE);
   if (linker_addr == 0) {
-    // Detect an attempt to run the linker on itself (e.g.
-    // `linker64 /system/bin/linker64`). If the kernel loaded this instance of
-    // the linker, then AT_ENTRY will refer to &_start. If it doesn't, then
-    // something else must have loaded this instance of the linker. It's
-    // simpler if we only allow one copy of the linker to be loaded at a time.
-    if (getauxval(AT_ENTRY) != reinterpret_cast<uintptr_t>(&_start)) {
-      // The first linker already relocated this one and set up TLS, so we don't
-      // need further libc initialization.
-      __linker_error("error: linker cannot load itself\n");
-    }
-    // Otherwise, the AT_PHDR and AT_PHNUM aux values describe this linker
-    // instance, so use the phdr to find the linker's base address.
+    // The AT_PHDR and AT_PHNUM aux values describe this linker instance, so use
+    // the phdr to find the linker's base address.
     ElfW(Addr) load_bias;
     get_elf_base_from_phdr(
       reinterpret_cast<ElfW(Phdr)*>(getauxval(AT_PHDR)), getauxval(AT_PHNUM),
@@ -615,7 +624,7 @@ extern "C" ElfW(Addr) __linker_init(void* raw_args) {
   // itself without having to look into local_group and (2) allocators
   // are not yet initialized, and therefore we cannot use linked_list.push_*
   // functions at this point.
-  if (!tmp_linker_so.link_image(g_empty_list, g_empty_list, nullptr)) __linker_cannot_link(args.argv[0]);
+  if (!tmp_linker_so.link_image(g_empty_list, g_empty_list, nullptr, nullptr)) __linker_cannot_link(args.argv[0]);
 
   return __linker_init_post_relocation(args, tmp_linker_so);
 }
