@@ -309,7 +309,6 @@ static inline __always_inline int __pthread_normal_mutex_lock(pthread_mutex_inte
         return result;
     }
 
-    ScopedTrace trace("Contending for pthread mutex");
 
     const uint16_t unlocked           = shared | MUTEX_STATE_BITS_UNLOCKED;
     const uint16_t locked_contended = shared | MUTEX_STATE_BITS_LOCKED_CONTENDED;
@@ -329,6 +328,8 @@ static inline __always_inline int __pthread_normal_mutex_lock(pthread_mutex_inte
             return ETIMEDOUT;
         }
     }
+
+    ScopedTrace trace("Contended for pthread mutex");
     return 0;
 }
 
