@@ -105,8 +105,10 @@ bool PointerData::Initialize(const Config& config) NO_THREAD_SAFETY_ANALYSIS {
       error_log("Unable to set up backtrace signal enable function: %s", strerror(errno));
       return false;
     }
-    info_log("%s: Run: 'kill -%d %d' to enable backtracing.", getprogname(),
-             config.backtrace_signal(), getpid());
+    if (config.options() & VERBOSE) {
+      info_log("%s: Run: 'kill -%d %d' to enable backtracing.", getprogname(),
+               config.backtrace_signal(), getpid());
+    }
   }
 
   if (config.options() & BACKTRACE) {
@@ -117,8 +119,10 @@ bool PointerData::Initialize(const Config& config) NO_THREAD_SAFETY_ANALYSIS {
       error_log("Unable to set up backtrace dump signal function: %s", strerror(errno));
       return false;
     }
-    info_log("%s: Run: 'kill -%d %d' to dump the backtrace.", getprogname(),
-             config.backtrace_dump_signal(), getpid());
+    if (config.options() & VERBOSE) {
+      info_log("%s: Run: 'kill -%d %d' to dump the backtrace.", getprogname(),
+               config.backtrace_dump_signal(), getpid());
+    }
   }
 
   backtrace_dump_ = false;
@@ -492,6 +496,17 @@ void PointerData::LogLeaks() {
   }
 }
 
+void PointerData::GetAllocList(std::vector<ListInfoType>* list) {
+  std::lock_guard<std::mutex> pointer_guard(pointer_mutex_);
+  std::lock_guard<std::mutex> frame_guard(frame_mutex_);
+
+  if (pointers_.empty()) {
+    return;
+  }
+
+  GetList(list, false);
+}
+
 void PointerData::GetInfo(uint8_t** info, size_t* overall_size, size_t* info_size,
                           size_t* total_memory, size_t* backtrace_size) {
   std::lock_guard<std::mutex> pointer_guard(pointer_mutex_);
@@ -590,9 +605,9 @@ void PointerData::DumpLiveToFile(FILE* fp) {
 }
 
 void PointerData::PrepareFork() NO_THREAD_SAFETY_ANALYSIS {
+  free_pointer_mutex_.lock();
   pointer_mutex_.lock();
   frame_mutex_.lock();
-  free_pointer_mutex_.lock();
 }
 
 void PointerData::PostForkParent() NO_THREAD_SAFETY_ANALYSIS {
