@@ -31,7 +31,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
-#include <stdatomic.h>
+#include <stdio.h>
 #include <private/bionic_config.h>
 
 // Entry in malloc dispatch table.
@@ -39,6 +39,7 @@ typedef void* (*MallocCalloc)(size_t, size_t);
 typedef void (*MallocFree)(void*);
 typedef struct mallinfo (*MallocMallinfo)();
 typedef void* (*MallocMalloc)(size_t);
+typedef int (*MallocMallocInfo)(int, FILE*);
 typedef size_t (*MallocMallocUsableSize)(const void*);
 typedef void* (*MallocMemalign)(size_t, size_t);
 typedef int (*MallocPosixMemalign)(void**, size_t, size_t);
@@ -55,25 +56,26 @@ typedef void* (*MallocValloc)(size_t);
 #endif
 
 struct MallocDispatch {
-  _Atomic MallocCalloc calloc;
-  _Atomic MallocFree free;
-  _Atomic MallocMallinfo mallinfo;
-  _Atomic MallocMalloc malloc;
-  _Atomic MallocMallocUsableSize malloc_usable_size;
-  _Atomic MallocMemalign memalign;
-  _Atomic MallocPosixMemalign posix_memalign;
+  MallocCalloc calloc;
+  MallocFree free;
+  MallocMallinfo mallinfo;
+  MallocMalloc malloc;
+  MallocMallocUsableSize malloc_usable_size;
+  MallocMemalign memalign;
+  MallocPosixMemalign posix_memalign;
 #if defined(HAVE_DEPRECATED_MALLOC_FUNCS)
-  _Atomic MallocPvalloc pvalloc;
+  MallocPvalloc pvalloc;
 #endif
-  _Atomic MallocRealloc realloc;
+  MallocRealloc realloc;
 #if defined(HAVE_DEPRECATED_MALLOC_FUNCS)
-  _Atomic MallocValloc valloc;
+  MallocValloc valloc;
 #endif
-  _Atomic MallocIterate iterate;
-  _Atomic MallocMallocDisable malloc_disable;
-  _Atomic MallocMallocEnable malloc_enable;
-  _Atomic MallocMallopt mallopt;
-  _Atomic MallocAlignedAlloc aligned_alloc;
+  MallocIterate iterate;
+  MallocMallocDisable malloc_disable;
+  MallocMallocEnable malloc_enable;
+  MallocMallopt mallopt;
+  MallocAlignedAlloc aligned_alloc;
+  MallocMallocInfo malloc_info;
 } __attribute__((aligned(32)));
 
 #endif

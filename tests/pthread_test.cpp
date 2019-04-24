@@ -190,7 +190,7 @@ TEST(pthread, static_pthread_key_used_before_creation) {
   ASSERT_EQ(EINVAL, pthread_setspecific(key, nullptr));
   ASSERT_EQ(EINVAL, pthread_key_delete(key));
 #else
-  GTEST_LOG_(INFO) << "This test tests bionic pthread key implementation detail.\n";
+  GTEST_SKIP() << "bionic-only test";
 #endif
 }
 
@@ -337,11 +337,14 @@ struct TestBug37410 {
   static void* thread_fn(void* arg) {
     TestBug37410* data = reinterpret_cast<TestBug37410*>(arg);
 
+    // Unlocking data->mutex will cause the main thread to exit, invalidating *data. Save the handle.
+    pthread_t main_thread = data->main_thread;
+
     // Let the main thread know we're running.
     pthread_mutex_unlock(&data->mutex);
 
     // And wait for the main thread to exit.
-    pthread_join(data->main_thread, nullptr);
+    pthread_join(main_thread, nullptr);
 
     return nullptr;
   }
@@ -495,7 +498,8 @@ TEST_F(pthread_DeathTest, pthread_setname_np__no_such_thread) {
   pthread_t dead_thread;
   MakeDeadThread(dead_thread);
 
-  EXPECT_DEATH(pthread_setname_np(dead_thread, "short 3"), "invalid pthread_t");
+  EXPECT_DEATH(pthread_setname_np(dead_thread, "short 3"),
+               "invalid pthread_t (.*) passed to pthread_setname_np");
 }
 
 TEST_F(pthread_DeathTest, pthread_setname_np__null_thread) {
@@ -508,7 +512,8 @@ TEST_F(pthread_DeathTest, pthread_getname_np__no_such_thread) {
   MakeDeadThread(dead_thread);
 
   char name[64];
-  EXPECT_DEATH(pthread_getname_np(dead_thread, name, sizeof(name)), "invalid pthread_t");
+  EXPECT_DEATH(pthread_getname_np(dead_thread, name, sizeof(name)),
+               "invalid pthread_t (.*) passed to pthread_getname_np");
 }
 
 TEST_F(pthread_DeathTest, pthread_getname_np__null_thread) {
@@ -564,7 +569,8 @@ TEST_F(pthread_DeathTest, pthread_detach__no_such_thread) {
   pthread_t dead_thread;
   MakeDeadThread(dead_thread);
 
-  EXPECT_DEATH(pthread_detach(dead_thread), "invalid pthread_t");
+  EXPECT_DEATH(pthread_detach(dead_thread),
+               "invalid pthread_t (.*) passed to pthread_detach");
 }
 
 TEST_F(pthread_DeathTest, pthread_detach__null_thread) {
@@ -591,7 +597,8 @@ TEST_F(pthread_DeathTest, pthread_getcpuclockid__no_such_thread) {
   MakeDeadThread(dead_thread);
 
   clockid_t c;
-  EXPECT_DEATH(pthread_getcpuclockid(dead_thread, &c), "invalid pthread_t");
+  EXPECT_DEATH(pthread_getcpuclockid(dead_thread, &c),
+               "invalid pthread_t (.*) passed to pthread_getcpuclockid");
 }
 
 TEST_F(pthread_DeathTest, pthread_getcpuclockid__null_thread) {
@@ -606,7 +613,8 @@ TEST_F(pthread_DeathTest, pthread_getschedparam__no_such_thread) {
 
   int policy;
   sched_param param;
-  EXPECT_DEATH(pthread_getschedparam(dead_thread, &policy, &param), "invalid pthread_t");
+  EXPECT_DEATH(pthread_getschedparam(dead_thread, &policy, &param),
+               "invalid pthread_t (.*) passed to pthread_getschedparam");
 }
 
 TEST_F(pthread_DeathTest, pthread_getschedparam__null_thread) {
@@ -622,7 +630,8 @@ TEST_F(pthread_DeathTest, pthread_setschedparam__no_such_thread) {
 
   int policy = 0;
   sched_param param;
-  EXPECT_DEATH(pthread_setschedparam(dead_thread, policy, &param), "invalid pthread_t");
+  EXPECT_DEATH(pthread_setschedparam(dead_thread, policy, &param),
+               "invalid pthread_t (.*) passed to pthread_setschedparam");
 }
 
 TEST_F(pthread_DeathTest, pthread_setschedparam__null_thread) {
@@ -636,7 +645,8 @@ TEST_F(pthread_DeathTest, pthread_setschedprio__no_such_thread) {
   pthread_t dead_thread;
   MakeDeadThread(dead_thread);
 
-  EXPECT_DEATH(pthread_setschedprio(dead_thread, 123), "invalid pthread_t");
+  EXPECT_DEATH(pthread_setschedprio(dead_thread, 123),
+               "invalid pthread_t (.*) passed to pthread_setschedprio");
 }
 
 TEST_F(pthread_DeathTest, pthread_setschedprio__null_thread) {
@@ -648,7 +658,8 @@ TEST_F(pthread_DeathTest, pthread_join__no_such_thread) {
   pthread_t dead_thread;
   MakeDeadThread(dead_thread);
 
-  EXPECT_DEATH(pthread_join(dead_thread, nullptr), "invalid pthread_t");
+  EXPECT_DEATH(pthread_join(dead_thread, nullptr),
+               "invalid pthread_t (.*) passed to pthread_join");
 }
 
 TEST_F(pthread_DeathTest, pthread_join__null_thread) {
@@ -660,7 +671,8 @@ TEST_F(pthread_DeathTest, pthread_kill__no_such_thread) {
   pthread_t dead_thread;
   MakeDeadThread(dead_thread);
 
-  EXPECT_DEATH(pthread_kill(dead_thread, 0), "invalid pthread_t");
+  EXPECT_DEATH(pthread_kill(dead_thread, 0),
+               "invalid pthread_t (.*) passed to pthread_kill");
 }
 
 TEST_F(pthread_DeathTest, pthread_kill__null_thread) {
@@ -974,8 +986,7 @@ TEST(pthread, pthread_rwlock_reader_wakeup_writer_timedwait_monotonic_np) {
   test_pthread_rwlock_reader_wakeup_writer(
       [&](pthread_rwlock_t* lock) { return pthread_rwlock_timedwrlock_monotonic_np(lock, &ts); });
 #else   // __BIONIC__
-  GTEST_LOG_(INFO) << "This test does nothing since pthread_rwlock_timedwrlock_monotonic_np is "
-                      "only supported on bionic";
+  GTEST_SKIP() << "pthread_rwlock_timedwrlock_monotonic_np not available";
 #endif  // __BIONIC__
 }
 
@@ -1023,8 +1034,7 @@ TEST(pthread, pthread_rwlock_writer_wakeup_reader_timedwait_monotonic_np) {
   test_pthread_rwlock_writer_wakeup_reader(
       [&](pthread_rwlock_t* lock) { return pthread_rwlock_timedrdlock_monotonic_np(lock, &ts); });
 #else   // __BIONIC__
-  GTEST_LOG_(INFO) << "This test does nothing since pthread_rwlock_timedrdlock_monotonic_np is "
-                      "only supported on bionic";
+  GTEST_SKIP() << "pthread_rwlock_timedrdlock_monotonic_np not available";
 #endif  // __BIONIC__
 }
 
@@ -1084,8 +1094,7 @@ TEST(pthread, pthread_rwlock_timedrdlock_monotonic_np_timeout) {
   pthread_rwlock_timedrdlock_timeout_helper(CLOCK_MONOTONIC,
                                             pthread_rwlock_timedrdlock_monotonic_np);
 #else   // __BIONIC__
-  GTEST_LOG_(INFO) << "This test does nothing since pthread_rwlock_timedrdlock_monotonic_np is "
-                      "only supported on bionic";
+  GTEST_SKIP() << "pthread_rwlock_timedrdlock_monotonic_np not available";
 #endif  // __BIONIC__
 }
 
@@ -1121,8 +1130,7 @@ TEST(pthread, pthread_rwlock_timedwrlock_monotonic_np_timeout) {
   pthread_rwlock_timedwrlock_timeout_helper(CLOCK_MONOTONIC,
                                             pthread_rwlock_timedwrlock_monotonic_np);
 #else   // __BIONIC__
-  GTEST_LOG_(INFO) << "This test does nothing since pthread_rwlock_timedwrlock_monotonic_np is "
-                      "only supported on bionic";
+  GTEST_SKIP() << "pthread_rwlock_timedwrlock_monotonic_np not available";
 #endif  // __BIONIC__
 }
 
@@ -1352,7 +1360,7 @@ TEST(pthread, pthread_cond_broadcast__preserves_condattr_flags) {
   ASSERT_EQ(0, pthread_condattr_getpshared(&attr, &pshared));
   ASSERT_EQ(PTHREAD_PROCESS_SHARED, pshared);
 #else  // !defined(__BIONIC__)
-  GTEST_LOG_(INFO) << "This tests a bionic implementation detail.\n";
+  GTEST_SKIP() << "bionic-only test";
 #endif  // !defined(__BIONIC__)
 }
 
@@ -1468,8 +1476,7 @@ TEST_F(pthread_CondWakeupTest, signal_timedwait_CLOCK_MONOTONIC_np) {
   progress = SIGNALED;
   ASSERT_EQ(0, pthread_cond_signal(&cond));
 #else   // __BIONIC__
-  GTEST_LOG_(INFO) << "This test does nothing since pthread_cond_timedwait_monotonic_np is only "
-                      "supported on bionic";
+  GTEST_SKIP() << "pthread_cond_timedwait_monotonic_np not available";
 #endif  // __BIONIC__
 }
 
@@ -1504,8 +1511,7 @@ TEST(pthread, pthread_cond_timedwait_monotonic_np_timeout) {
 #if defined(__BIONIC__)
   pthread_cond_timedwait_timeout_helper(CLOCK_MONOTONIC, pthread_cond_timedwait_monotonic_np);
 #else   // __BIONIC__
-  GTEST_LOG_(INFO) << "This test does nothing since pthread_cond_timedwait_monotonic_np is only "
-                      "supported on bionic";
+  GTEST_SKIP() << "pthread_cond_timedwait_monotonic_np not available";
 #endif  // __BIONIC__
 }
 
@@ -1541,7 +1547,7 @@ TEST(pthread, pthread_attr_getstack__main_thread) {
   void* maps_stack_hi = nullptr;
   std::vector<map_record> maps;
   ASSERT_TRUE(Maps::parse_maps(&maps));
-  uintptr_t stack_address = reinterpret_cast<uintptr_t>(&maps_stack_hi);
+  uintptr_t stack_address = reinterpret_cast<uintptr_t>(untag_address(&maps_stack_hi));
   for (const auto& map : maps) {
     if (map.addr_start <= stack_address && map.addr_end > stack_address){
       maps_stack_hi = reinterpret_cast<void*>(map.addr_end);
@@ -1620,9 +1626,9 @@ static void getstack_signal_handler(int sig) {
 
   // Verify if the stack used by the signal handler is the alternate stack just registered.
   ASSERT_LE(getstack_signal_handler_arg.signal_stack_base, &attr);
-  ASSERT_LT(static_cast<void*>(&attr),
+  ASSERT_LT(static_cast<void*>(untag_address(&attr)),
             static_cast<char*>(getstack_signal_handler_arg.signal_stack_base) +
-            getstack_signal_handler_arg.signal_stack_size);
+                getstack_signal_handler_arg.signal_stack_size);
 
   // Verify if the main thread's stack got in the signal handler is correct.
   ASSERT_EQ(getstack_signal_handler_arg.main_stack_base, stack_base);
@@ -1681,7 +1687,7 @@ static void pthread_attr_getstack_18908062_helper(void*) {
 
   // Test whether &local_variable is in [stack_base, stack_base + stack_size).
   ASSERT_LE(reinterpret_cast<char*>(stack_base), &local_variable);
-  ASSERT_LT(&local_variable, reinterpret_cast<char*>(stack_base) + stack_size);
+  ASSERT_LT(untag_address(&local_variable), reinterpret_cast<char*>(stack_base) + stack_size);
 }
 
 // Check whether something on stack is in the range of
@@ -1727,7 +1733,7 @@ TEST(pthread, pthread_gettid_np) {
 
   ASSERT_EQ(t_gettid_result, t_pthread_gettid_np_result);
 #else
-  GTEST_LOG_(INFO) << "This test does nothing.\n";
+  GTEST_SKIP() << "pthread_gettid_np not available";
 #endif
 }
 
@@ -1922,7 +1928,7 @@ TEST(pthread, pthread_mutex_pi_count_limit) {
   }
   ASSERT_EQ(0, pthread_mutexattr_destroy(&attr));
 #else
-  GTEST_LOG_(INFO) << "This test does nothing as pi mutex count isn't limited.\n";
+  GTEST_SKIP() << "pi mutex count not limited to 64Ki";
 #endif
 }
 
@@ -2109,7 +2115,7 @@ TEST(pthread, pthread_mutex_owner_tid_limit) {
   // Bionic's pthread_mutex implementation on 32-bit devices uses 16 bits to represent owner tid.
   ASSERT_LE(pid_max, 65536);
 #else
-  GTEST_LOG_(INFO) << "This test does nothing as 32-bit tid is supported by pthread_mutex.\n";
+  GTEST_SKIP() << "pthread_mutex supports 32-bit tid";
 #endif
 }
 
@@ -2152,8 +2158,7 @@ TEST(pthread, pthread_mutex_timedlock_monotonic_np) {
 #if defined(__BIONIC__)
   pthread_mutex_timedlock_helper(CLOCK_MONOTONIC, pthread_mutex_timedlock_monotonic_np);
 #else   // __BIONIC__
-  GTEST_LOG_(INFO) << "This test does nothing since pthread_mutex_timedlock_monotonic_np is only "
-                      "supported on bionic";
+  GTEST_SKIP() << "pthread_mutex_timedlock_monotonic_np not available";
 #endif  // __BIONIC__
 }
 
@@ -2204,8 +2209,7 @@ TEST(pthread, pthread_mutex_timedlock_monotonic_np_pi) {
 #if defined(__BIONIC__)
   pthread_mutex_timedlock_pi_helper(CLOCK_MONOTONIC, pthread_mutex_timedlock_monotonic_np);
 #else   // __BIONIC__
-  GTEST_LOG_(INFO) << "This test does nothing since pthread_mutex_timedlock_monotonic_np is only "
-                      "supported on bionic";
+  GTEST_SKIP() << "pthread_mutex_timedlock_monotonic_np not available";
 #endif  // __BIONIC__
 }
 
@@ -2228,7 +2232,7 @@ TEST(pthread, pthread_mutex_using_destroyed_mutex) {
   ASSERT_EXIT(pthread_mutex_destroy(&m), ::testing::KilledBySignal(SIGABRT),
               "pthread_mutex_destroy called on a destroyed mutex");
 #else
-  GTEST_LOG_(INFO) << "This test tests bionic pthread mutex implementation details.";
+  GTEST_SKIP() << "bionic-only test";
 #endif
 }
 
@@ -2285,7 +2289,7 @@ TEST(pthread, pthread_types_allow_four_bytes_alignment) {
   ASSERT_EQ(0, pthread_rwlock_destroy(rwlock));
 
 #else
-  GTEST_LOG_(INFO) << "This test tests bionic implementation details.";
+  GTEST_SKIP() << "bionic-only test";
 #endif
 }
 
@@ -2300,7 +2304,7 @@ TEST(pthread, pthread_mutex_lock_null_32) {
   pthread_mutex_t* null_value = nullptr;
   ASSERT_EQ(EINVAL, pthread_mutex_lock(null_value));
 #else
-  GTEST_LOG_(INFO) << "This test tests bionic implementation details on 32 bit devices.";
+  GTEST_SKIP() << "32-bit bionic-only test";
 #endif
 }
 
@@ -2315,7 +2319,7 @@ TEST(pthread, pthread_mutex_unlock_null_32) {
   pthread_mutex_t* null_value = nullptr;
   ASSERT_EQ(EINVAL, pthread_mutex_unlock(null_value));
 #else
-  GTEST_LOG_(INFO) << "This test tests bionic implementation details on 32 bit devices.";
+  GTEST_SKIP() << "32-bit bionic-only test";
 #endif
 }
 
@@ -2324,7 +2328,7 @@ TEST_F(pthread_DeathTest, pthread_mutex_lock_null_64) {
   pthread_mutex_t* null_value = nullptr;
   ASSERT_EXIT(pthread_mutex_lock(null_value), testing::KilledBySignal(SIGSEGV), "");
 #else
-  GTEST_LOG_(INFO) << "This test tests bionic implementation details on 64 bit devices.";
+  GTEST_SKIP() << "64-bit bionic-only test";
 #endif
 }
 
@@ -2333,7 +2337,7 @@ TEST_F(pthread_DeathTest, pthread_mutex_unlock_null_64) {
   pthread_mutex_t* null_value = nullptr;
   ASSERT_EXIT(pthread_mutex_unlock(null_value), testing::KilledBySignal(SIGSEGV), "");
 #else
-  GTEST_LOG_(INFO) << "This test tests bionic implementation details on 64 bit devices.";
+  GTEST_SKIP() << "64-bit bionic-only test";
 #endif
 }
 
@@ -2646,10 +2650,7 @@ TEST(pthread, pthread_attr_setinheritsched__PTHREAD_INHERIT_SCHED__PTHREAD_EXPLI
 TEST(pthread, pthread_attr_setinheritsched_PTHREAD_INHERIT_SCHED_takes_effect) {
   sched_param param = { .sched_priority = sched_get_priority_min(SCHED_FIFO) };
   int rc = pthread_setschedparam(pthread_self(), SCHED_FIFO, &param);
-  if (rc == EPERM) {
-    GTEST_LOG_(INFO) << "pthread_setschedparam failed with EPERM, skipping test\n";
-    return;
-  }
+  if (rc == EPERM) GTEST_SKIP() << "pthread_setschedparam failed with EPERM";
   ASSERT_EQ(0, rc);
 
   pthread_attr_t attr;
@@ -2670,10 +2671,7 @@ TEST(pthread, pthread_attr_setinheritsched_PTHREAD_INHERIT_SCHED_takes_effect) {
 TEST(pthread, pthread_attr_setinheritsched_PTHREAD_EXPLICIT_SCHED_takes_effect) {
   sched_param param = { .sched_priority = sched_get_priority_min(SCHED_FIFO) };
   int rc = pthread_setschedparam(pthread_self(), SCHED_FIFO, &param);
-  if (rc == EPERM) {
-    GTEST_LOG_(INFO) << "pthread_setschedparam failed with EPERM, skipping test\n";
-    return;
-  }
+  if (rc == EPERM) GTEST_SKIP() << "pthread_setschedparam failed with EPERM";
   ASSERT_EQ(0, rc);
 
   pthread_attr_t attr;
@@ -2695,10 +2693,7 @@ TEST(pthread, pthread_attr_setinheritsched_PTHREAD_EXPLICIT_SCHED_takes_effect) 
 TEST(pthread, pthread_attr_setinheritsched__takes_effect_despite_SCHED_RESET_ON_FORK) {
   sched_param param = { .sched_priority = sched_get_priority_min(SCHED_FIFO) };
   int rc = pthread_setschedparam(pthread_self(), SCHED_FIFO | SCHED_RESET_ON_FORK, &param);
-  if (rc == EPERM) {
-    GTEST_LOG_(INFO) << "pthread_setschedparam failed with EPERM, skipping test\n";
-    return;
-  }
+  if (rc == EPERM) GTEST_SKIP() << "pthread_setschedparam failed with EPERM";
   ASSERT_EQ(0, rc);
 
   pthread_attr_t attr;
