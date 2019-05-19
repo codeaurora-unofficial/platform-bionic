@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 The Android Open Source Project
+ * Copyright (C) 2019 The Android Open Source Project
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -26,12 +26,6 @@
  * SUCH DAMAGE.
  */
 
-#include <private/bionic_asm.h>
+#pragma once
 
-#define FUNCTION_DELEGATE(name, impl) \
-ENTRY(name); \
-    b impl; \
-END(name)
-
-FUNCTION_DELEGATE(strcmp, strcmp_internal)
-FUNCTION_DELEGATE(strlen, strlen_internal)
+extern "C" const char* __bionic_get_shell_path();
