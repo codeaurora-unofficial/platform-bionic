@@ -46,6 +46,7 @@
 //   write_malloc_leak_info: Writes the leak info data to a file.
 
 #include <dlfcn.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>
 #include <stdatomic.h>
@@ -54,15 +55,29 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#include <android/dlext.h>
+
 #include <private/bionic_config.h>
 #include <private/bionic_defs.h>
 #include <private/bionic_malloc_dispatch.h>
+#include <private/bionic_malloc.h>
 
 #include <sys/system_properties.h>
 
 #include "malloc_common.h"
 #include "malloc_common_dynamic.h"
 #include "malloc_heapprofd.h"
+#include "malloc_limit.h"
+
+// =============================================================================
+// Global variables instantations.
+// =============================================================================
+pthread_mutex_t gGlobalsMutateLock = PTHREAD_MUTEX_INITIALIZER;
+
+bool gZygoteChild = false;
+
+_Atomic bool gGlobalsMutating = false;
+// =============================================================================
 
 static constexpr MallocDispatch __libc_malloc_default_dispatch
   __attribute__((unused)) = {
@@ -85,6 +100,7 @@ static constexpr MallocDispatch __libc_malloc_default_dispatch
     Malloc(malloc_enable),
     Malloc(mallopt),
     Malloc(aligned_alloc),
+    Malloc(malloc_info),
   };
 
 static constexpr char kHooksSharedLib[] = "libc_malloc_hooks.so";
@@ -99,7 +115,7 @@ static constexpr char kDebugPropertyProgram[] = "libc.debug.malloc.program";
 static constexpr char kDebugEnvOptions[] = "LIBC_DEBUG_MALLOC_OPTIONS";
 
 typedef void (*finalize_func_t)();
-typedef bool (*init_func_t)(const MallocDispatch*, int*, const char*);
+typedef bool (*init_func_t)(const MallocDispatch*, bool*, const char*);
 typedef void (*get_malloc_leak_info_func_t)(uint8_t**, size_t*, size_t*, size_t*, size_t*);
 typedef void (*free_malloc_leak_info_func_t)(uint8_t*);
 typedef bool (*write_malloc_leak_info_func_t)(FILE*);
@@ -144,6 +160,10 @@ static bool InitMallocFunctions(void* impl_handler, MallocDispatch* table, const
     return false;
   }
   if (!InitMallocFunction<MallocMalloc>(impl_handler, &table->malloc, prefix, "malloc")) {
+    return false;
+  }
+  if (!InitMallocFunction<MallocMallocInfo>(impl_handler, &table->malloc_info, prefix,
+                                                "malloc_info")) {
     return false;
   }
   if (!InitMallocFunction<MallocMallocUsableSize>(impl_handler, &table->malloc_usable_size, prefix,
@@ -262,8 +282,41 @@ bool InitSharedLibrary(void* impl_handle, const char* shared_lib, const char* pr
   return true;
 }
 
+// Note about USE_SCUDO. This file is compiled into libc.so and libc_scudo.so.
+// When compiled into libc_scudo.so, the libc_malloc_* libraries don't need
+// to be loaded from the runtime namespace since libc_scudo.so is not from
+// the runtime APEX, but is copied to any APEX that needs it.
+#ifndef USE_SCUDO
+extern "C" struct android_namespace_t* android_get_exported_namespace(const char* name);
+#endif
+
 void* LoadSharedLibrary(const char* shared_lib, const char* prefix, MallocDispatch* dispatch_table) {
-  void* impl_handle = dlopen(shared_lib, RTLD_NOW | RTLD_LOCAL);
+  void* impl_handle = nullptr;
+#ifndef USE_SCUDO
+  // Try to load the libc_malloc_* libs from the "runtime" namespace and then
+  // fall back to dlopen() to load them from the default namespace.
+  //
+  // The libraries are packaged in the runtime APEX together with libc.so.
+  // However, since the libc.so is searched via the symlink in the system
+  // partition (/system/lib/libc.so -> /apex/com.android.runtime/bionic.libc.so)
+  // libc.so is loaded into the default namespace. If we just dlopen() here, the
+  // linker will load the libs found in /system/lib which might be incompatible
+  // with libc.so in the runtime APEX. Use android_dlopen_ext to explicitly load
+  // the ones in the runtime APEX.
+  struct android_namespace_t* runtime_ns = android_get_exported_namespace("runtime");
+  if (runtime_ns != nullptr) {
+    const android_dlextinfo dlextinfo = {
+      .flags = ANDROID_DLEXT_USE_NAMESPACE,
+      .library_namespace = runtime_ns,
+    };
+    impl_handle = android_dlopen_ext(shared_lib, RTLD_NOW | RTLD_LOCAL, &dlextinfo);
+  }
+#endif
+
+  if (impl_handle == nullptr) {
+    impl_handle = dlopen(shared_lib, RTLD_NOW | RTLD_LOCAL);
+  }
+
   if (impl_handle == nullptr) {
     error_log("%s: Unable to open shared library %s: %s", getprogname(), shared_lib, dlerror());
     return nullptr;
@@ -279,7 +332,7 @@ void* LoadSharedLibrary(const char* shared_lib, const char* prefix, MallocDispat
 
 bool FinishInstallHooks(libc_globals* globals, const char* options, const char* prefix) {
   init_func_t init_func = reinterpret_cast<init_func_t>(gFunctions[FUNC_INITIALIZE]);
-  if (!init_func(&__libc_malloc_default_dispatch, &gMallocLeakZygoteChild, options)) {
+  if (!init_func(&__libc_malloc_default_dispatch, &gZygoteChild, options)) {
     error_log("%s: failed to enable malloc %s", getprogname(), prefix);
     ClearGlobalFunctions();
     return false;
@@ -287,9 +340,10 @@ bool FinishInstallHooks(libc_globals* globals, const char* options, const char* 
 
   // Do a pointer swap so that all of the functions become valid at once to
   // avoid any initialization order problems.
-  atomic_store(&globals->current_dispatch_table, &globals->malloc_dispatch_table);
-
-  info_log("%s: malloc %s enabled", getprogname(), prefix);
+  atomic_store(&globals->default_dispatch_table, &globals->malloc_dispatch_table);
+  if (GetDispatchTable() == nullptr) {
+    atomic_store(&globals->current_dispatch_table, &globals->malloc_dispatch_table);
+  }
 
   // Use atexit to trigger the cleanup function. This avoids a problem
   // where another atexit function is used to cleanup allocated memory,
@@ -298,7 +352,7 @@ bool FinishInstallHooks(libc_globals* globals, const char* options, const char* 
   int ret_value = __cxa_atexit(MallocFiniImpl, nullptr, nullptr);
   if (ret_value != 0) {
     // We don't consider this a fatal error.
-    info_log("failed to set atexit cleanup function: %d", ret_value);
+    warning_log("failed to set atexit cleanup function: %d", ret_value);
   }
   return true;
 }
@@ -307,13 +361,6 @@ static bool InstallHooks(libc_globals* globals, const char* options, const char*
                          const char* shared_lib) {
   void* impl_handle = LoadSharedLibrary(shared_lib, prefix, &globals->malloc_dispatch_table);
   if (impl_handle == nullptr) {
-    return false;
-  }
-
-  init_func_t init_func = reinterpret_cast<init_func_t>(gFunctions[FUNC_INITIALIZE]);
-  if (!init_func(&__libc_malloc_default_dispatch, &gMallocLeakZygoteChild, options)) {
-    error_log("%s: failed to enable malloc %s", getprogname(), prefix);
-    ClearGlobalFunctions();
     return false;
   }
 
@@ -362,39 +409,29 @@ __LIBC_HIDDEN__ void __libc_init_malloc(libc_globals* globals) {
 // =============================================================================
 // Functions to support dumping of native heap allocations using malloc debug.
 // =============================================================================
-
-// Retrieve native heap information.
-//
-// "*info" is set to a buffer we allocate
-// "*overall_size" is set to the size of the "info" buffer
-// "*info_size" is set to the size of a single entry
-// "*total_memory" is set to the sum of all allocations we're tracking; does
-//   not include heap overhead
-// "*backtrace_size" is set to the maximum number of entries in the back trace
-extern "C" void get_malloc_leak_info(uint8_t** info, size_t* overall_size,
-    size_t* info_size, size_t* total_memory, size_t* backtrace_size) {
+bool GetMallocLeakInfo(android_mallopt_leak_info_t* leak_info) {
   void* func = gFunctions[FUNC_GET_MALLOC_LEAK_INFO];
   if (func == nullptr) {
-    return;
+    errno = ENOTSUP;
+    return false;
   }
-  reinterpret_cast<get_malloc_leak_info_func_t>(func)(info, overall_size, info_size, total_memory,
-                                                      backtrace_size);
+  reinterpret_cast<get_malloc_leak_info_func_t>(func)(
+      &leak_info->buffer, &leak_info->overall_size, &leak_info->info_size,
+      &leak_info->total_memory, &leak_info->backtrace_size);
+  return true;
 }
 
-extern "C" void free_malloc_leak_info(uint8_t* info) {
+bool FreeMallocLeakInfo(android_mallopt_leak_info_t* leak_info) {
   void* func = gFunctions[FUNC_FREE_MALLOC_LEAK_INFO];
   if (func == nullptr) {
-    return;
+    errno = ENOTSUP;
+    return false;
   }
-  reinterpret_cast<free_malloc_leak_info_func_t>(func)(info);
+  reinterpret_cast<free_malloc_leak_info_func_t>(func)(leak_info->buffer);
+  return true;
 }
 
-extern "C" void write_malloc_leak_info(FILE* fp) {
-  if (fp == nullptr) {
-    error_log("write_malloc_leak_info called with a nullptr");
-    return;
-  }
-
+bool WriteMallocLeakInfo(FILE* fp) {
   void* func = gFunctions[FUNC_WRITE_LEAK_INFO];
   bool written = false;
   if (func != nullptr) {
@@ -406,7 +443,9 @@ extern "C" void write_malloc_leak_info(FILE* fp) {
     fprintf(fp, "# adb shell stop\n");
     fprintf(fp, "# adb shell setprop libc.debug.malloc.options backtrace\n");
     fprintf(fp, "# adb shell start\n");
+    errno = ENOTSUP;
   }
+  return written;
 }
 // =============================================================================
 
@@ -426,6 +465,38 @@ extern "C" ssize_t malloc_backtrace(void* pointer, uintptr_t* frames, size_t fra
 // Platform-internal mallopt variant.
 // =============================================================================
 extern "C" bool android_mallopt(int opcode, void* arg, size_t arg_size) {
+  if (opcode == M_SET_ZYGOTE_CHILD) {
+    if (arg != nullptr || arg_size != 0) {
+      errno = EINVAL;
+      return false;
+    }
+    gZygoteChild = true;
+    return true;
+  }
+  if (opcode == M_SET_ALLOCATION_LIMIT_BYTES) {
+    return LimitEnable(arg, arg_size);
+  }
+  if (opcode == M_WRITE_MALLOC_LEAK_INFO_TO_FILE) {
+    if (arg == nullptr || arg_size != sizeof(FILE*)) {
+      errno = EINVAL;
+      return false;
+    }
+    return WriteMallocLeakInfo(reinterpret_cast<FILE*>(arg));
+  }
+  if (opcode == M_GET_MALLOC_LEAK_INFO) {
+    if (arg == nullptr || arg_size != sizeof(android_mallopt_leak_info_t)) {
+      errno = EINVAL;
+      return false;
+    }
+    return GetMallocLeakInfo(reinterpret_cast<android_mallopt_leak_info_t*>(arg));
+  }
+  if (opcode == M_FREE_MALLOC_LEAK_INFO) {
+    if (arg == nullptr || arg_size != sizeof(android_mallopt_leak_info_t)) {
+      errno = EINVAL;
+      return false;
+    }
+    return FreeMallocLeakInfo(reinterpret_cast<android_mallopt_leak_info_t*>(arg));
+  }
   return HeapprofdMallopt(opcode, arg, arg_size);
 }
 // =============================================================================

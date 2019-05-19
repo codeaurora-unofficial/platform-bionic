@@ -44,7 +44,7 @@
 #include "OptionData.h"
 #include "UnwindBacktrace.h"
 
-extern int* g_malloc_zygote_child;
+extern bool* g_zygote_child;
 
 // Forward declarations.
 class Config;
@@ -89,7 +89,9 @@ struct PointerInfoType {
   size_t hash_index;
   size_t RealSize() const { return size & ~(1U << 31); }
   bool ZygoteChildAlloc() const { return size & (1U << 31); }
-  static size_t GetEncodedSize(size_t size) { return GetEncodedSize(*g_malloc_zygote_child, size); }
+  static size_t GetEncodedSize(size_t size) {
+    return GetEncodedSize(*g_zygote_child, size);
+  }
   static size_t GetEncodedSize(bool child_alloc, size_t size) {
     return size | ((child_alloc) ? (1U << 31) : 0);
   }
@@ -132,9 +134,6 @@ class PointerData : public OptionData {
   void PostForkParent();
   void PostForkChild();
 
-  static void GetList(std::vector<ListInfoType>* list, bool only_with_backtrace);
-  static void GetUniqueList(std::vector<ListInfoType>* list, bool only_with_backtrace);
-
   static size_t AddBacktrace(size_t num_frames);
   static void RemoveBacktrace(size_t hash_index);
 
@@ -151,6 +150,7 @@ class PointerData : public OptionData {
   static void VerifyFreedPointer(const FreePointerInfoType& info);
   static void VerifyAllFreed();
 
+  static void GetAllocList(std::vector<ListInfoType>* list);
   static void LogLeaks();
   static void DumpLiveToFile(FILE* fp);
 
@@ -164,6 +164,9 @@ class PointerData : public OptionData {
  private:
   static std::string GetHashString(uintptr_t* frames, size_t num_frames);
   static void LogBacktrace(size_t hash_index);
+
+  static void GetList(std::vector<ListInfoType>* list, bool only_with_backtrace);
+  static void GetUniqueList(std::vector<ListInfoType>* list, bool only_with_backtrace);
 
   size_t alloc_offset_ = 0;
   std::vector<uint8_t> cmp_mem_;

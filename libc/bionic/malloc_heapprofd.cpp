@@ -32,6 +32,7 @@
 
 #include <dlfcn.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -80,10 +81,10 @@ static _Atomic bool gHeapprofdInitHookInstalled = false;
 
 // In a Zygote child process, this is set to true if profiling of this process
 // is allowed. Note that this is set at a later time than the global
-// gMallocLeakZygoteChild. The latter is set during the fork (while still in
+// gZygoteChild. The latter is set during the fork (while still in
 // zygote's SELinux domain). While this bit is set after the child is
 // specialized (and has transferred SELinux domains if applicable).
-static _Atomic bool gMallocZygoteChildProfileable = false;
+static _Atomic bool gZygoteChildProfileable = false;
 
 extern "C" void* MallocInitHeapprofdHook(size_t);
 
@@ -108,19 +109,37 @@ static constexpr MallocDispatch __heapprofd_init_dispatch
     Malloc(malloc_enable),
     Malloc(mallopt),
     Malloc(aligned_alloc),
+    Malloc(malloc_info),
   };
 
 static void MaybeInstallInitHeapprofdHook(int) {
   // Zygote child processes must be marked profileable.
-  if (gMallocLeakZygoteChild &&
-      !atomic_load_explicit(&gMallocZygoteChildProfileable, memory_order_acquire)) {
+  if (gZygoteChild &&
+      !atomic_load_explicit(&gZygoteChildProfileable, memory_order_acquire)) {
     return;
   }
 
-  if (!atomic_exchange(&gHeapprofdInitInProgress, true)) {
-    __libc_globals.mutate([](libc_globals* globals) {
-      atomic_store(&globals->current_dispatch_table, &__heapprofd_init_dispatch);
-    });
+  // Checking this variable is only necessary when this could conflict with
+  // the change to enable the allocation limit. All other places will
+  // not ever have a conflict modifying the globals.
+  if (!atomic_exchange(&gGlobalsMutating, true)) {
+    if (!atomic_exchange(&gHeapprofdInitInProgress, true)) {
+      __libc_globals.mutate([](libc_globals* globals) {
+        atomic_store(&globals->default_dispatch_table, &__heapprofd_init_dispatch);
+        auto dispatch_table = GetDispatchTable();
+        if (dispatch_table == nullptr || dispatch_table == &globals->malloc_dispatch_table) {
+          atomic_store(&globals->current_dispatch_table, &__heapprofd_init_dispatch);
+        }
+      });
+    }
+    atomic_store(&gGlobalsMutating, false);
+  } else {
+    // The only way you can get to this point is if the signal has been
+    // blocked by a call to HeapprofdMaskSignal. The raise below will
+    // do nothing until a call to HeapprofdUnmaskSignal, which will cause
+    // the signal to be resent. Using this avoids the need for a busy loop
+    // waiting for gGlobalsMutating to change back to false.
+    raise(kHeapprofdSignal);
   }
 }
 
@@ -211,6 +230,24 @@ void HeapprofdInstallSignalHandler() {
   sigaction(kHeapprofdSignal, &action, nullptr);
 }
 
+extern "C" int __rt_sigprocmask(int, const sigset64_t*, sigset64_t*, size_t);
+
+void HeapprofdMaskSignal() {
+  sigset64_t mask_set;
+  // Need to use this function instead because sigprocmask64 filters
+  // out this signal.
+  __rt_sigprocmask(SIG_SETMASK, nullptr, &mask_set, sizeof(mask_set));
+  sigaddset64(&mask_set, kHeapprofdSignal);
+  __rt_sigprocmask(SIG_SETMASK, &mask_set, nullptr, sizeof(mask_set));
+}
+
+void HeapprofdUnmaskSignal() {
+  sigset64_t mask_set;
+  __rt_sigprocmask(SIG_SETMASK, nullptr, &mask_set, sizeof(mask_set));
+  sigdelset64(&mask_set, kHeapprofdSignal);
+  __rt_sigprocmask(SIG_SETMASK, &mask_set, nullptr, sizeof(mask_set));
+}
+
 static void DisplayError(int) {
   error_log("Cannot install heapprofd while malloc debug/malloc hooks are enabled.");
 }
@@ -250,9 +287,11 @@ void HeapprofdInstallHooksAtInit(libc_globals* globals) {
 }
 
 static void* InitHeapprofd(void*) {
+  pthread_mutex_lock(&gGlobalsMutateLock);
   __libc_globals.mutate([](libc_globals* globals) {
     CommonInstallHooks(globals);
   });
+  pthread_mutex_unlock(&gGlobalsMutateLock);
 
   // Allow to install hook again to re-initialize heap profiling after the
   // current session finished.
@@ -262,9 +301,15 @@ static void* InitHeapprofd(void*) {
 
 extern "C" void* MallocInitHeapprofdHook(size_t bytes) {
   if (!atomic_exchange(&gHeapprofdInitHookInstalled, true)) {
+    pthread_mutex_lock(&gGlobalsMutateLock);
     __libc_globals.mutate([](libc_globals* globals) {
-      atomic_store(&globals->current_dispatch_table, nullptr);
+      auto old_dispatch = GetDefaultDispatchTable();
+      atomic_store(&globals->default_dispatch_table, nullptr);
+      if (GetDispatchTable() == old_dispatch) {
+        atomic_store(&globals->current_dispatch_table, nullptr);
+      }
     });
+    pthread_mutex_unlock(&gGlobalsMutateLock);
 
     pthread_t thread_id;
     if (pthread_create(&thread_id, nullptr, InitHeapprofd, nullptr) != 0) {
@@ -281,7 +326,7 @@ extern "C" void* MallocInitHeapprofdHook(size_t bytes) {
 
 // Marks this process as a profileable zygote child.
 static bool HandleInitZygoteChildProfiling() {
-  atomic_store_explicit(&gMallocZygoteChildProfileable, true, memory_order_release);
+  atomic_store_explicit(&gZygoteChildProfileable, true, memory_order_release);
 
   // Conditionally start "from startup" profiling.
   if (HeapprofdShouldLoad()) {
@@ -294,9 +339,15 @@ static bool HandleInitZygoteChildProfiling() {
 
 static bool DispatchReset() {
   if (!atomic_exchange(&gHeapprofdInitInProgress, true)) {
+    pthread_mutex_lock(&gGlobalsMutateLock);
     __libc_globals.mutate([](libc_globals* globals) {
-      atomic_store(&globals->current_dispatch_table, nullptr);
+      auto old_dispatch = GetDefaultDispatchTable();
+      atomic_store(&globals->default_dispatch_table, nullptr);
+      if (GetDispatchTable() == old_dispatch) {
+        atomic_store(&globals->current_dispatch_table, nullptr);
+      }
     });
+    pthread_mutex_unlock(&gGlobalsMutateLock);
     atomic_store(&gHeapprofdInitInProgress, false);
     return true;
   }
