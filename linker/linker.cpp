@@ -1865,11 +1865,17 @@ bool find_libraries(android_namespace_t* ns,
 
     soinfo_list_t global_group = local_group_ns->get_global_group();
     bool linked = local_group.visit([&](soinfo* si) {
-      // Even though local group may contain accessible soinfos from other namesapces
+      // Even though local group may contain accessible soinfos from other namespaces
       // we should avoid linking them (because if they are not linked -> they
       // are in the local_group_roots and will be linked later).
       if (!si->is_linked() && si->get_primary_namespace() == local_group_ns) {
-        if (!si->link_image(global_group, local_group, extinfo, &relro_fd_offset) ||
+        const android_dlextinfo* link_extinfo = nullptr;
+        if (si == soinfos[0] || reserved_address_recursive) {
+          // Only forward extinfo for the first library unless the recursive
+          // flag is set.
+          link_extinfo = extinfo;
+        }
+        if (!si->link_image(global_group, local_group, link_extinfo, &relro_fd_offset) ||
             !get_cfi_shadow()->AfterLoad(si, solist_get_head())) {
           return false;
         }
@@ -2383,9 +2389,26 @@ bool do_dlsym(void* handle,
 
   if (sym != nullptr) {
     uint32_t bind = ELF_ST_BIND(sym->st_info);
+    uint32_t type = ELF_ST_TYPE(sym->st_info);
 
     if ((bind == STB_GLOBAL || bind == STB_WEAK) && sym->st_shndx != 0) {
-      *symbol = reinterpret_cast<void*>(found->resolve_symbol_address(sym));
+      if (type == STT_TLS) {
+        // For a TLS symbol, dlsym returns the address of the current thread's
+        // copy of the symbol. This function may allocate a DTV and/or storage
+        // for the source TLS module. (Allocating a DTV isn't necessary if the
+        // symbol is part of static TLS, but it's simpler to reuse
+        // __tls_get_addr.)
+        soinfo_tls* tls_module = found->get_tls();
+        if (tls_module == nullptr) {
+          DL_ERR("TLS symbol \"%s\" in solib \"%s\" with no TLS segment",
+                 sym_name, found->get_realpath());
+          return false;
+        }
+        const TlsIndex ti { tls_module->module_id, sym->st_value };
+        *symbol = TLS_GET_ADDR(&ti);
+      } else {
+        *symbol = reinterpret_cast<void*>(found->resolve_symbol_address(sym));
+      }
       failure_guard.Disable();
       LD_LOG(kLogDlsym,
              "... dlsym successful: sym_name=\"%s\", sym_ver=\"%s\", found in=\"%s\", address=%p",
