@@ -325,6 +325,7 @@ static inline __always_inline int __pthread_normal_mutex_lock(pthread_mutex_inte
                                     memory_order_acquire) != unlocked) {
         if (__futex_wait_ex(&mutex->state, shared, locked_contended, use_realtime_clock,
                             abs_timeout_or_null) == -ETIMEDOUT) {
+            ScopedTrace trace("Contended for pthread mutex");
             return ETIMEDOUT;
         }
     }
@@ -456,8 +457,6 @@ static int __pthread_mutex_lock_with_timeout(pthread_mutex_internal_t* mutex,
         }
     }
 
-    ScopedTrace trace("Contending for pthread mutex");
-
     while (true) {
         if (old_state == unlocked) {
             // NOTE: We put the state to locked_contended since we _know_ there
@@ -471,6 +470,7 @@ static int __pthread_mutex_lock_with_timeout(pthread_mutex_internal_t* mutex,
                                                                      memory_order_acquire,
                                                                      memory_order_relaxed))) {
                 atomic_store_explicit(&mutex->owner_tid, tid, memory_order_relaxed);
+                ScopedTrace trace("Contended for pthread mutex");
                 return 0;
             }
             continue;
@@ -490,15 +490,19 @@ static int __pthread_mutex_lock_with_timeout(pthread_mutex_internal_t* mutex,
 
         int result = check_timespec(abs_timeout_or_null, true);
         if (result != 0) {
+            ScopedTrace trace("Contended for pthread mutex");
             return result;
         }
         // We are in locked_contended state, sleep until someone wakes us up.
         if (__recursive_or_errorcheck_mutex_wait(mutex, shared, old_state, use_realtime_clock,
                                                  abs_timeout_or_null) == -ETIMEDOUT) {
+
+            ScopedTrace trace("Contended for pthread mutex");
             return ETIMEDOUT;
         }
         old_state = atomic_load_explicit(&mutex->state, memory_order_relaxed);
     }
+    ScopedTrace trace("Contended for pthread mutex");
 }
 
 int pthread_mutex_lock(pthread_mutex_t* mutex_interface) {
