@@ -36,6 +36,7 @@
 
 #include <async_safe/log.h>
 
+#include "linker_config.h"
 #include "linker_debug.h"
 #include "linker_globals.h"
 #include "linker_logger.h"
@@ -85,11 +86,7 @@ void soinfo::set_dt_runpath(const char* path) {
   // FIXME: add $PLATFORM.
   std::vector<std::pair<std::string, std::string>> params = {
     {"ORIGIN", origin},
-#if defined(LIB_PATH)
-    {"LIB", LIB_PATH},
-#else
-#error "LIB_PATH not defined"
-#endif
+    {"LIB", kLibPath},
   };
   for (auto&& s : runpaths) {
     format_string(&s, params);
@@ -649,10 +646,6 @@ void soinfo::add_secondary_namespace(android_namespace_t* secondary_ns) {
 android_namespace_list_t& soinfo::get_secondary_namespaces() {
   CHECK(has_min_version(3));
   return secondary_namespaces_;
-}
-
-soinfo_tls* soinfo::get_tls() const {
-  return has_min_version(5) ? tls_.get() : nullptr;
 }
 
 ElfW(Addr) soinfo::resolve_symbol_address(const ElfW(Sym)* s) const {

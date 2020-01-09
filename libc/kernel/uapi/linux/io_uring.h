@@ -33,6 +33,8 @@ struct io_uring_sqe {
     __u32 fsync_flags;
     __u16 poll_events;
     __u32 sync_range_flags;
+    __u32 msg_flags;
+    __u32 timeout_flags;
   };
   __u64 user_data;
   union {
@@ -42,6 +44,7 @@ struct io_uring_sqe {
 };
 #define IOSQE_FIXED_FILE (1U << 0)
 #define IOSQE_IO_DRAIN (1U << 1)
+#define IOSQE_IO_LINK (1U << 2)
 #define IORING_SETUP_IOPOLL (1U << 0)
 #define IORING_SETUP_SQPOLL (1U << 1)
 #define IORING_SETUP_SQ_AFF (1U << 2)
@@ -54,6 +57,9 @@ struct io_uring_sqe {
 #define IORING_OP_POLL_ADD 6
 #define IORING_OP_POLL_REMOVE 7
 #define IORING_OP_SYNC_FILE_RANGE 8
+#define IORING_OP_SENDMSG 9
+#define IORING_OP_RECVMSG 10
+#define IORING_OP_TIMEOUT 11
 #define IORING_FSYNC_DATASYNC (1U << 0)
 struct io_uring_cqe {
   __u64 user_data;
@@ -92,10 +98,12 @@ struct io_uring_params {
   __u32 flags;
   __u32 sq_thread_cpu;
   __u32 sq_thread_idle;
-  __u32 resv[5];
+  __u32 features;
+  __u32 resv[4];
   struct io_sqring_offsets sq_off;
   struct io_cqring_offsets cq_off;
 };
+#define IORING_FEAT_SINGLE_MMAP (1U << 0)
 #define IORING_REGISTER_BUFFERS 0
 #define IORING_UNREGISTER_BUFFERS 1
 #define IORING_REGISTER_FILES 2

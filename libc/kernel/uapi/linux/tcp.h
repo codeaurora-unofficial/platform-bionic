@@ -92,6 +92,7 @@ enum {
 #define TCP_ZEROCOPY_RECEIVE 35
 #define TCP_INQ 36
 #define TCP_CM_INQ TCP_INQ
+#define TCP_TX_DELAY 37
 #define TCP_REPAIR_ON 1
 #define TCP_REPAIR_OFF 0
 #define TCP_REPAIR_OFF_NO_WP - 1
@@ -183,6 +184,8 @@ struct tcp_info {
   __u64 tcpi_bytes_retrans;
   __u32 tcpi_dsack_dups;
   __u32 tcpi_reord_seen;
+  __u32 tcpi_rcv_ooopack;
+  __u32 tcpi_snd_wnd;
 };
 enum {
   TCP_NLA_PAD,

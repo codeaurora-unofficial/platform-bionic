@@ -54,29 +54,10 @@
 void __init_user_desc(struct user_desc*, bool, void*);
 #endif
 
-// This code is used both by each new pthread and the code that initializes the main thread.
-__attribute__((no_stack_protector))
-void __init_tcb(bionic_tcb* tcb, pthread_internal_t* thread) {
-#ifdef TLS_SLOT_SELF
-  // On x86, slot 0 must point to itself so code can read the thread pointer by
-  // loading %fs:0 or %gs:0.
-  tcb->tls_slot(TLS_SLOT_SELF) = &tcb->tls_slot(TLS_SLOT_SELF);
-#endif
-  tcb->tls_slot(TLS_SLOT_THREAD_ID) = thread;
-}
-
 __attribute__((no_stack_protector))
 void __init_tcb_stack_guard(bionic_tcb* tcb) {
   // GCC looks in the TLS for the stack guard on x86, so copy it there from our global.
   tcb->tls_slot(TLS_SLOT_STACK_GUARD) = reinterpret_cast<void*>(__stack_chk_guard);
-}
-
-__attribute__((no_stack_protector))
-void __init_tcb_dtv(bionic_tcb* tcb) {
-  // Initialize the DTV slot to a statically-allocated empty DTV. The first
-  // access to a dynamic TLS variable allocates a new DTV.
-  static const TlsDtv zero_dtv = {};
-  __set_tcb_dtv(tcb, const_cast<TlsDtv*>(&zero_dtv));
 }
 
 void __init_bionic_tls_ptrs(bionic_tcb* tcb, bionic_tls* tls) {
@@ -344,6 +325,8 @@ void __set_stack_and_tls_vma_name(bool is_main_thread) {
         name);
 }
 
+extern "C" int __rt_sigprocmask(int, const sigset64_t*, sigset64_t*, size_t);
+
 __attribute__((no_sanitize("hwaddress")))
 static int __pthread_start(void* arg) {
   pthread_internal_t* thread = reinterpret_cast<pthread_internal_t*>(arg);
@@ -358,6 +341,7 @@ static int __pthread_start(void* arg) {
 
   __set_stack_and_tls_vma_name(false);
   __init_additional_stacks(thread);
+  __rt_sigprocmask(SIG_SETMASK, &thread->start_mask, nullptr, sizeof(thread->start_mask));
 
   void* result = thread->start_routine(thread->start_routine_arg);
   pthread_exit(result);
@@ -420,7 +404,12 @@ int pthread_create(pthread_t* thread_out, pthread_attr_t const* attr,
   __init_user_desc(&tls_descriptor, false, tls);
   tls = &tls_descriptor;
 #endif
+
+  sigset64_t block_all_mask;
+  sigfillset64(&block_all_mask);
+  __rt_sigprocmask(SIG_SETMASK, &block_all_mask, &thread->start_mask, sizeof(thread->start_mask));
   int rc = clone(__pthread_start, child_stack, flags, thread, &(thread->tid), tls, &(thread->tid));
+  __rt_sigprocmask(SIG_SETMASK, &thread->start_mask, nullptr, sizeof(thread->start_mask));
   if (rc == -1) {
     int clone_errno = errno;
     // We don't have to unlock the mutex at all because clone(2) failed so there's no child waiting to
