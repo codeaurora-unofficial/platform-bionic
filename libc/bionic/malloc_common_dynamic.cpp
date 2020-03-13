@@ -95,7 +95,7 @@ static constexpr MallocDispatch __libc_malloc_default_dispatch
 #if defined(HAVE_DEPRECATED_MALLOC_FUNCS)
     Malloc(valloc),
 #endif
-    Malloc(iterate),
+    Malloc(malloc_iterate),
     Malloc(malloc_disable),
     Malloc(malloc_enable),
     Malloc(mallopt),
@@ -184,7 +184,8 @@ static bool InitMallocFunctions(void* impl_handler, MallocDispatch* table, const
   if (!InitMallocFunction<MallocRealloc>(impl_handler, &table->realloc, prefix, "realloc")) {
     return false;
   }
-  if (!InitMallocFunction<MallocIterate>(impl_handler, &table->iterate, prefix, "iterate")) {
+  if (!InitMallocFunction<MallocIterate>(impl_handler, &table->malloc_iterate, prefix,
+                                         "malloc_iterate")) {
     return false;
   }
   if (!InitMallocFunction<MallocMallocDisable>(impl_handler, &table->malloc_disable, prefix,
@@ -464,6 +465,7 @@ extern "C" ssize_t malloc_backtrace(void* pointer, uintptr_t* frames, size_t fra
 // =============================================================================
 // Platform-internal mallopt variant.
 // =============================================================================
+__BIONIC_WEAK_FOR_NATIVE_BRIDGE
 extern "C" bool android_mallopt(int opcode, void* arg, size_t arg_size) {
   if (opcode == M_SET_ZYGOTE_CHILD) {
     if (arg != nullptr || arg_size != 0) {

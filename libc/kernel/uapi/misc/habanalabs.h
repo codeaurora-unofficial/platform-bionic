@@ -23,21 +23,38 @@
 #define GOYA_KMD_SRAM_RESERVED_SIZE_FROM_START 0x8000
 enum goya_queue_id {
   GOYA_QUEUE_ID_DMA_0 = 0,
-  GOYA_QUEUE_ID_DMA_1,
-  GOYA_QUEUE_ID_DMA_2,
-  GOYA_QUEUE_ID_DMA_3,
-  GOYA_QUEUE_ID_DMA_4,
-  GOYA_QUEUE_ID_CPU_PQ,
-  GOYA_QUEUE_ID_MME,
-  GOYA_QUEUE_ID_TPC0,
-  GOYA_QUEUE_ID_TPC1,
-  GOYA_QUEUE_ID_TPC2,
-  GOYA_QUEUE_ID_TPC3,
-  GOYA_QUEUE_ID_TPC4,
-  GOYA_QUEUE_ID_TPC5,
-  GOYA_QUEUE_ID_TPC6,
-  GOYA_QUEUE_ID_TPC7,
+  GOYA_QUEUE_ID_DMA_1 = 1,
+  GOYA_QUEUE_ID_DMA_2 = 2,
+  GOYA_QUEUE_ID_DMA_3 = 3,
+  GOYA_QUEUE_ID_DMA_4 = 4,
+  GOYA_QUEUE_ID_CPU_PQ = 5,
+  GOYA_QUEUE_ID_MME = 6,
+  GOYA_QUEUE_ID_TPC0 = 7,
+  GOYA_QUEUE_ID_TPC1 = 8,
+  GOYA_QUEUE_ID_TPC2 = 9,
+  GOYA_QUEUE_ID_TPC3 = 10,
+  GOYA_QUEUE_ID_TPC4 = 11,
+  GOYA_QUEUE_ID_TPC5 = 12,
+  GOYA_QUEUE_ID_TPC6 = 13,
+  GOYA_QUEUE_ID_TPC7 = 14,
   GOYA_QUEUE_ID_SIZE
+};
+enum goya_engine_id {
+  GOYA_ENGINE_ID_DMA_0 = 0,
+  GOYA_ENGINE_ID_DMA_1,
+  GOYA_ENGINE_ID_DMA_2,
+  GOYA_ENGINE_ID_DMA_3,
+  GOYA_ENGINE_ID_DMA_4,
+  GOYA_ENGINE_ID_MME_0,
+  GOYA_ENGINE_ID_TPC_0,
+  GOYA_ENGINE_ID_TPC_1,
+  GOYA_ENGINE_ID_TPC_2,
+  GOYA_ENGINE_ID_TPC_3,
+  GOYA_ENGINE_ID_TPC_4,
+  GOYA_ENGINE_ID_TPC_5,
+  GOYA_ENGINE_ID_TPC_6,
+  GOYA_ENGINE_ID_TPC_7,
+  GOYA_ENGINE_ID_SIZE
 };
 enum hl_device_status {
   HL_DEVICE_STATUS_OPERATIONAL,
@@ -49,6 +66,8 @@ enum hl_device_status {
 #define HL_INFO_DRAM_USAGE 2
 #define HL_INFO_HW_IDLE 3
 #define HL_INFO_DEVICE_STATUS 4
+#define HL_INFO_DEVICE_UTILIZATION 6
+#define HL_INFO_HW_EVENTS_AGGREGATE 7
 #define HL_INFO_VERSION_MAX_LEN 128
 struct hl_info_hw_ip_info {
   __u64 sram_base_address;
@@ -74,17 +93,24 @@ struct hl_info_dram_usage {
 };
 struct hl_info_hw_idle {
   __u32 is_idle;
-  __u32 pad;
+  __u32 busy_engines_mask;
 };
 struct hl_info_device_status {
   __u32 status;
+  __u32 pad;
+};
+struct hl_info_device_utilization {
+  __u32 utilization;
   __u32 pad;
 };
 struct hl_info_args {
   __u64 return_pointer;
   __u32 return_size;
   __u32 op;
-  __u32 ctx_id;
+  union {
+    __u32 ctx_id;
+    __u32 period_ms;
+  };
   __u32 pad;
 };
 #define HL_CB_OP_CREATE 0

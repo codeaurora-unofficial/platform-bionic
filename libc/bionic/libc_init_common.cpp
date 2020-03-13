@@ -42,6 +42,7 @@
 #include <unistd.h>
 
 #include <async_safe/log.h>
+#include <platform/bionic/mte_kernel.h>
 
 #include "private/WriteProtected.h"
 #include "private/bionic_defs.h"
@@ -101,11 +102,31 @@ void __libc_init_common() {
 
   __libc_add_main_thread();
 
-  // Register atfork handlers to take and release the arc4random lock.
-  pthread_atfork(arc4random_fork_handler, _thread_arc4_unlock, _thread_arc4_unlock);
-
   __system_properties_init(); // Requires 'environ'.
   __libc_init_fdsan(); // Requires system properties (for debug.fdsan).
+
+  // Allow the kernel to accept tagged pointers in syscall arguments. This is a no-op (kernel
+  // returns -EINVAL) if the kernel doesn't understand the prctl.
+#if defined(__aarch64__)
+#define PR_SET_TAGGED_ADDR_CTRL 55
+#define PR_TAGGED_ADDR_ENABLE   (1UL << 0)
+#ifdef ANDROID_EXPERIMENTAL_MTE
+  // First, try enabling MTE in asynchronous mode, with tag 0 excluded. This will fail if the kernel
+  // or hardware doesn't support MTE, and we will fall back to just enabling tagged pointers in
+  // syscall arguments.
+  if (prctl(PR_SET_TAGGED_ADDR_CTRL,
+            PR_TAGGED_ADDR_ENABLE | PR_MTE_TCF_ASYNC | (1 << PR_MTE_EXCL_SHIFT), 0, 0, 0)) {
+    prctl(PR_SET_TAGGED_ADDR_CTRL, PR_TAGGED_ADDR_ENABLE, 0, 0, 0);
+  }
+#else
+  prctl(PR_SET_TAGGED_ADDR_CTRL, PR_TAGGED_ADDR_ENABLE, 0, 0, 0);
+#endif
+#endif
+}
+
+void __libc_init_fork_handler() {
+  // Register atfork handlers to take and release the arc4random lock.
+  pthread_atfork(arc4random_fork_handler, _thread_arc4_unlock, _thread_arc4_unlock);
 }
 
 __noreturn static void __early_abort(int line) {
