@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 The Android Open Source Project
+ * Copyright (C) 2020 The Android Open Source Project
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -26,42 +26,18 @@
  * SUCH DAMAGE.
  */
 
-#include <errno.h>
-#include <sys/epoll.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
-#include "private/SigSetConverter.h"
 #include "private/bionic_fdtrack.h"
 
-extern "C" int __epoll_create1(int flags);
-extern "C" int __epoll_pwait(int, epoll_event*, int, int, const sigset64_t*, size_t);
+extern "C" int __socketpair(int domain, int type, int protocol, int sv[2]);
 
-int epoll_create(int size) {
-  if (size <= 0) {
-    errno = EINVAL;
-    return -1;
+int socketpair(int domain, int type, int protocol, int sv[2]) {
+  int rc = __socketpair(domain, type, protocol, sv);
+  if (rc == 0) {
+    FDTRACK_CREATE(sv[0]);
+    FDTRACK_CREATE(sv[1]);
   }
-  return FDTRACK_CREATE(__epoll_create1(0));
-}
-
-int epoll_create1(int flags) {
-  return FDTRACK_CREATE(__epoll_create1(flags));
-}
-
-int epoll_pwait(int fd, epoll_event* events, int max_events, int timeout, const sigset_t* ss) {
-  SigSetConverter set;
-  sigset64_t* ss_ptr = nullptr;
-  if (ss != nullptr) {
-    set = {};
-    set.sigset = *ss;
-    ss_ptr = &set.sigset64;
-  }
-  return epoll_pwait64(fd, events, max_events, timeout, ss_ptr);
-}
-
-int epoll_pwait64(int fd, epoll_event* events, int max_events, int timeout, const sigset64_t* ss) {
-  return __epoll_pwait(fd, events, max_events, timeout, ss, sizeof(*ss));
-}
-
-int epoll_wait(int fd, struct epoll_event* events, int max_events, int timeout) {
-  return epoll_pwait64(fd, events, max_events, timeout, nullptr);
+  return rc;
 }
