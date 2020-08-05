@@ -1752,6 +1752,7 @@ cc_library_headers {
         "//art:__subpackages__",
         "//bionic:__subpackages__",
         "//frameworks:__subpackages__",
+        "//device/generic/goldfish-opengl:__subpackages__",
         "//external/gwp_asan:__subpackages__",
         "//external/perfetto:__subpackages__",
         "//external/scudo:__subpackages__",
@@ -1769,6 +1770,13 @@ cc_library_headers {
     system_shared_libs: [],
     stl: "none",
     sdk_version: "current",
+
+    apex_available: [
+        "//apex_available:platform",
+        "com.android.runtime",
+        "com.android.art.release", // from libdexfile_external
+        "com.android.art.debug", // from libdexfile_external
+    ],
 }
 
 // libc_headers for libasync_safe and libpropertyinfoparser
@@ -1784,6 +1792,8 @@ cc_library_headers {
         "//apex_available:platform",
         "//apex_available:anyapex",
     ],
+    // used by most APEXes indirectly via libunwind_llvm
+    min_sdk_version: "apex_inherit",
     visibility: [
         ":__subpackages__", // visible to bionic
         // ... and only to these places (b/152668052)
@@ -1927,7 +1937,8 @@ cc_defaults {
         "//apex_available:platform",
         "//apex_available:anyapex",
     ],
-
+    // crt* objects are used by most cc_binary/cc_library in "anyapex"
+    min_sdk_version: "apex_inherit",
     cflags: [
         "-Wno-gcc-compat",
         "-Wall",
@@ -2324,6 +2335,7 @@ cc_genrule {
         "SECCOMP_WHITELIST_COMMON.TXT",
         "SECCOMP_WHITELIST_APP.TXT",
         "SECCOMP_BLACKLIST_COMMON.TXT",
+        "SECCOMP_PRIORITY.TXT",
         ":generate_app_zygote_blacklist",
         ":libseccomp_gen_syscall_nrs_arm",
         ":libseccomp_gen_syscall_nrs_arm64",
@@ -2352,6 +2364,7 @@ cc_genrule {
         "SECCOMP_WHITELIST_APP.TXT",
         "SECCOMP_BLACKLIST_COMMON.TXT",
         "SECCOMP_BLACKLIST_APP.TXT",
+        "SECCOMP_PRIORITY.TXT",
         ":libseccomp_gen_syscall_nrs_arm",
         ":libseccomp_gen_syscall_nrs_arm64",
         ":libseccomp_gen_syscall_nrs_x86",
@@ -2378,6 +2391,7 @@ cc_genrule {
         "SECCOMP_WHITELIST_COMMON.TXT",
         "SECCOMP_WHITELIST_SYSTEM.TXT",
         "SECCOMP_BLACKLIST_COMMON.TXT",
+        "SECCOMP_PRIORITY.TXT",
         ":libseccomp_gen_syscall_nrs_arm",
         ":libseccomp_gen_syscall_nrs_arm64",
         ":libseccomp_gen_syscall_nrs_x86",
@@ -2481,6 +2495,11 @@ cc_library_shared {
     allow_undefined_symbols: true,
     // Like libc, disable native coverage for libc_scudo.
     native_coverage: false,
+    apex_available: [
+        "//apex_available:platform",
+        "com.android.media.swcodec",
+    ],
+    min_sdk_version: "apex_inherit",
 }
 
 subdirs = [
